@@ -7,6 +7,10 @@
 
 
 PID_t pid_speed;
+PID_t pid_cloud_x;
+PID_t pid_cloud_y;
+
+
 
 static float pid_clampf(float v, float lo, float hi)
 {
@@ -232,6 +236,37 @@ void PID_InitAngleLoop(PID_t *pid, float dt_s, float speed_limit_rad_s)
     if (limit <= 0.0f)
     {
         limit = PID_ANGLE_OUT_LIMIT_DEFAULT;
+    }
+    PID_SetOutputLimit(pid, -limit, limit);
+    PID_SetDerivativeFilter(pid, PID_DEFAULT_DERIV_TAU_S);
+    PID_Reset(pid);
+}
+
+
+float PID_PositionalControl(PID_t *pid, float target,float measure)
+{
+    float error = PID_WrapPmPi(target - measure);
+    return pid_update_from_error(pid, error);
+}
+
+void PID_InitCloudLoop(PID_t *pid, float dt_s, float out_limit)
+{
+    float limit = fabsf(out_limit);
+
+    PID_Init(pid);
+    if (pid == 0)
+    {
+        return;
+    }
+
+    pid->Kp = PID_CLOUD_KP_DEFAULT;
+    pid->Ki = PID_CLOUD_KI_DEFAULT;
+    pid->Kd = PID_CLOUD_KD_DEFAULT;
+
+    PID_SetDt(pid, dt_s);
+    if (limit <= 0.0f)
+    {
+        limit = -PID_DEFAULT_OUT_MIN;
     }
     PID_SetOutputLimit(pid, -limit, limit);
     PID_SetDerivativeFilter(pid, PID_DEFAULT_DERIV_TAU_S);

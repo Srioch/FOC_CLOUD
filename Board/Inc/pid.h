@@ -17,8 +17,8 @@
 #define PID_DEFAULT_OUT_MAX         (6.0f)
 
 /* Speed loop defaults: input/output unit = rad/s -> V */
-#define PID_SPEED_KP_DEFAULT        0.01f
-#define PID_SPEED_KI_DEFAULT        0.10f
+#define PID_SPEED_KP_DEFAULT        0.05f
+#define PID_SPEED_KI_DEFAULT        0.05f
 #define PID_SPEED_KD_DEFAULT        0.00f
 
 /* Angle loop defaults: input/output unit = rad -> rad/s */
@@ -26,6 +26,11 @@
 #define PID_ANGLE_KI_DEFAULT        0.00f
 #define PID_ANGLE_KD_DEFAULT        0.00f
 #define PID_ANGLE_OUT_LIMIT_DEFAULT 30.0f
+
+#define PID_CLOUD_KP_DEFAULT 0.2f
+#define PID_CLOUD_KI_DEFAULT 0.0f
+#define PID_CLOUD_KD_DEFAULT 0.0f
+
 
 
 
@@ -49,6 +54,9 @@ typedef struct
 extern PID_t pid_speed;
 extern PID_t pid_angle;
 
+extern PID_t pid_cloud_x;
+extern PID_t pid_cloud_y;
+
 
 void PID_Init(PID_t *pid);
 void PID_Reset(PID_t *pid);
@@ -68,5 +76,9 @@ float PID_UpdateAngleWrapped(PID_t *pid, float setpoint_rad, float measurement_r
 /* Project-friendly presets */
 void PID_InitSpeedLoop(PID_t *pid, float dt_s, float uq_limit);
 void PID_InitAngleLoop(PID_t *pid, float dt_s, float speed_limit_rad_s);
+
+float PID_PositionalControl(PID_t *pid, float target, float current);
+
+void PID_InitCloudLoop(PID_t *pid, float dt_s, float out_limit);
 
 #endif

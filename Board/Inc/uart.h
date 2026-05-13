@@ -22,12 +22,17 @@
 
 typedef struct
 {
-    float error_x;
-    float error_y;
+    uint8_t ID;
+    uint16_t x;
+    uint8_t y;
     uint8_t find;
 } VisionData_t;
 
+
+
+
 extern uint8_t turn_flag;
+extern volatile VisionData_t vision_data;
 
 
 
@@ -51,5 +56,7 @@ int fputc(int ch, FILE *f);
 void UART_CommandHandler(const char *command);
 
 void dataGet(uint8_t *command, VisionData_t *vision_data);
+
+uint8_t UART_TryGetVisionFrame(VisionData_t *frame);
 
 #endif
