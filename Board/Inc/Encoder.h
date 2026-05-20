@@ -19,6 +19,8 @@
 
 extern float target_angle;
 
+
+
 typedef struct
 {
 	I2C_HandleTypeDef *hi2c;   // AS5600 所在 I2C 句柄
@@ -42,6 +44,10 @@ typedef struct
 	uint32_t time_prev;
 	uint32_t time_now;
 } Encoder_t;
+
+
+extern Encoder_t encoder_up;
+extern Encoder_t encoder_down;
 
 /**
  * @brief 

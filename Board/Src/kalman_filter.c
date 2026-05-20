@@ -93,3 +93,58 @@ float kalman_filter_Update(kalman_filter_t *kf, float newAngle, float newRate, f
 
     return kf->angle;
 }
+
+void kalman_filter_pos_speed_Init(kalman_filter_pos_speed_t *kf)
+{
+    kf->Q_position = 0.001f;
+    kf->Q_speed    = 0.1f;
+    kf->R_measure  = 0.01f;
+    kf->position   = 0.0f;
+    kf->speed      = 0.0f;
+
+    kf->P[0][0] = 0.01f;
+    kf->P[0][1] = 0.0f;
+    kf->P[1][0] = 0.0f;
+    kf->P[1][1] = 0.1f;
+}
+
+/**
+ * @brief 位置→速度 Kalman 更新
+ * @param kf              结构体指针
+ * @param measured_position 编码器测得位置 (rad, 无折回)
+ * @param dt              采样周期 (s)
+ * @return kf->speed      估计速度 (rad/s)
+ *
+ * @note 模型: x = [position, speed]^T, 常速度递推, 仅观测 position
+ *       调参规律: R_measure↑更平滑但滞后大; Q_speed↑响应快但噪声大
+ */
+float kalman_filter_pos_speed_Update(kalman_filter_pos_speed_t *kf, float measured_position, float dt)
+{
+    /*========== 1. Predict ==========*/
+    float position_pred = kf->position + kf->speed * dt;
+    float speed_pred    = kf->speed;
+
+    /* P_pred = A * P * A^T + Q */
+    float P00 = kf->P[0][0] + dt * (kf->P[1][0] + kf->P[0][1] + dt * kf->P[1][1]) + kf->Q_position;
+    float P01 = kf->P[0][1] + dt * kf->P[1][1];
+    float P10 = kf->P[1][0] + dt * kf->P[1][1];
+    float P11 = kf->P[1][1] + kf->Q_speed;
+
+    /*========== 2. Update (观测 position, H = [1, 0]) ==========*/
+    float S  = P00 + kf->R_measure;
+    float K0 = P00 / S;   // 位置增益
+    float K1 = P10 / S;   // 速度增益
+
+    float innovation = measured_position - position_pred;
+
+    kf->position = position_pred + K0 * innovation;
+    kf->speed    = speed_pred    + K1 * innovation;
+
+    /* 更新协方差: P = (I - K*H) * P_pred */
+    kf->P[0][0] = P00 - K0 * P00;
+    kf->P[0][1] = P01 - K0 * P01;
+    kf->P[1][0] = P10 - K1 * P00;
+    kf->P[1][1] = P11 - K1 * P01;
+
+    return kf->speed;
+}

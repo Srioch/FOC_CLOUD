@@ -20,6 +20,7 @@
 
 static UART_HandleTypeDef *g_huart = NULL;
 static uint8_t rx_byte;
+static uint8_t rx_byte_u2;
 
 static char rx_buffer[RX_BUFFER_SIZE];
 static char rx_buffer_pending[RX_BUFFER_SIZE];
@@ -28,6 +29,11 @@ static volatile uint8_t rx_ready = 0;
 static volatile uint8_t rx_overflow = 0;
 static volatile uint8_t rx_overflow_flag = 0;
 uint8_t turn_flag = 0;
+static uint8_t openmv_data[7];// 7字节帧：0xa3, 0xb3, ID, xH, xL, y, 0xc3
+static uint8_t rx_16t;
+volatile VisionData_t vision_data;
+static volatile uint8_t vision_frame_ready = 0U;
+static volatile uint16_t pwm_value = 0U;
 
 
 
@@ -47,6 +53,11 @@ HAL_StatusTypeDef UART_StartReceiveIT(UART_HandleTypeDef *huart)
     if(huart->Instance == USART1)
     {
         return HAL_UART_Receive_IT(huart, &rx_byte, 1U);
+    }
+
+    if(huart->Instance == USART2)
+    {
+        return HAL_UART_Receive_IT(huart, &rx_byte_u2, 1U);
     }
 
 
@@ -123,13 +134,40 @@ static void UART_RXHandleLine(uint8_t byte)
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if(g_huart != NULL && huart == g_huart)
+    if(g_huart != NULL && huart == &huart1)
     {
     
         // byte 接收字节开始处理
         UART_RXHandleLine(rx_byte);
         HAL_UART_Receive_IT(g_huart, &rx_byte, 1U);
     }
+
+    if(huart == &huart2)
+    {
+        rx_16t = rx_byte_u2;
+        HAL_UART_Receive_IT(&huart2, &rx_byte_u2, 1U);
+        static uint8_t openmv_data_index = 0U;
+        openmv_data[openmv_data_index++] = rx_16t;
+        if(openmv_data_index == 1) vision_data.find = 0U;//每次接收新帧的第一个字节时，重置 find 标志
+        if(openmv_data[0] != 0xa3) openmv_data_index = 0U;
+        if((openmv_data_index == 2) && (openmv_data[1] != 0xb3)) openmv_data_index = 0U;
+        if(openmv_data_index == 7)
+        {
+            if(openmv_data[6] == 0xc3)
+            {
+                vision_data.ID = openmv_data[2];
+                vision_data.find = 1U;
+                vision_data.x = (uint16_t)(openmv_data[3] << 8 |openmv_data[4]);
+                vision_data.y = openmv_data[5];
+                openmv_data_index = 0U;
+                vision_frame_ready = 1U;
+            }
+            openmv_data_index = 0U;
+
+        }
+
+    }
+
 }
 
 void UART_ProcessPendingCommand(void)
@@ -179,7 +217,7 @@ void UART_CommandHandler(const char *command)
     else if(strcmp(command, "STOP") == 0)
     {
         turn_flag = 0U;
-        printf("Stop command received\r\n");
+         printf("Stop command received\r\n");
     }
     else if(sscanf(command, "SET KP:%f", &temp) == 1)
     {
@@ -201,6 +239,26 @@ void UART_CommandHandler(const char *command)
 
 }
 
+uint8_t UART_TryGetVisionFrame(VisionData_t *frame)
+{
+      uint8_t ready = 0U;
+
+      if (frame == NULL)
+      {
+          return 0U;
+      }
+
+      __disable_irq();
+      if (vision_frame_ready)
+      {
+          *frame = vision_data;
+          vision_frame_ready = 0U;
+          ready = 1U;
+      }
+      __enable_irq();
+
+      return ready;
+}
 
 
 void UART_TelemetryTask(void)

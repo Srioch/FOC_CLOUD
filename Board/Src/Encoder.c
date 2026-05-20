@@ -8,6 +8,8 @@
 #define AS5600_I2C_TIMEOUT_MS 100U
 
 float target_angle = 0.0f;
+Encoder_t encoder_up;
+Encoder_t encoder_down;
 
 static float encoder_normalize_angle(float angle)
 {

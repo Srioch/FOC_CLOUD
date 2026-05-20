@@ -40,6 +40,33 @@ void kalman_filter_Init(kalman_filter_t *kf);
 
 float kalman_filter_Update(kalman_filter_t *kf, float newAngle, float newRate, float dt);
 
+/*========================== 位置→速度 Kalman ==========================*/
+// 状态: [position, speed]^T
+// 观测: position only (H = [1, 0])
+// 速度通过常速度模型递推 + 位置观测修正，天然滤波
+typedef struct kalman_filter_pos_speed
+{
+    float Q_position;  // 位置过程噪声
+    float Q_speed;     // 速度过程噪声 (越大则KF对加速度响应越快，但噪声也越大)
+    float R_measure;   // 位置测量噪声 (越大则滤波越平滑，但滞后越大)
+    float position;    // 估计位置 (rad)
+    float speed;       // 估计速度 (rad/s)
+    float P[2][2];     // 误差协方差矩阵
+} kalman_filter_pos_speed_t;
+
+#define KALMAN_FILTER_POS_SPEED_INIT_DEFAULT \
+{\
+    .Q_position = 0.001f,\
+    .Q_speed = 0.1f,\
+    .R_measure = 0.01f,\
+    .position = 0.0f,\
+    .speed = 0.0f,\
+    .P = {{0.01f, 0.0f}, {0.0f, 0.1f}}\
+}
+
+void kalman_filter_pos_speed_Init(kalman_filter_pos_speed_t *kf);
+float kalman_filter_pos_speed_Update(kalman_filter_pos_speed_t *kf, float measured_position, float dt);
+
 
 
 
