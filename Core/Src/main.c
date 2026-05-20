@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "adc.h"
 #include "dma.h"
 #include "i2c.h"
 #include "tim.h"
@@ -31,6 +32,7 @@
 #include "encoder.h"
 #include "uart.h"
 #include "kalman_filter.h"
+#include "MYADC.h"
 
 /* USER CODE END Includes */
 
@@ -61,15 +63,16 @@ static kalman_filter_pos_speed_t kf_speed;
 static Encoder_t encoder;
 static volatile uint8_t flag = 0U;
 static volatile uint8_t uart_flag = 0U;
-static float uq;
-static float speed_raw = 0.0f;
-static float speed_filt = 0.0f;
+float uq;
+float speed_raw = 0.0f;
+float speed_filt = 0.0f;
 static uint8_t speed_loop_div = 0U;
 static uint16_t temp = 0U;
 static VisionControl_t vc_up;
 static VisionControl_t vc_down;
 VisionData_t frame;
 static uint32_t last_vision_tick = 0U;
+volatile float Ua, Ub, Uc;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -120,6 +123,7 @@ int main(void)
   MX_TIM3_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim1);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
@@ -174,12 +178,13 @@ int main(void)
      if(flag)
     {
       if(turn_flag)
-        //SpeedLoop_Update(&encoder_up, &kf_speed, 0.005f, 10.0f);
+        //
         {
-
+          
+          SpeedLoop_Update(&encoder_up, &kf_speed, 0.005f, 10.0f);
           
           
-          if (UART_TryGetVisionFrame(&frame))
+          /* if (UART_TryGetVisionFrame(&frame))
           {
               last_vision_tick = HAL_GetTick();
 
@@ -198,7 +203,7 @@ int main(void)
           }
 
           temp = MotorSpeedLoop_Update(&vc_up, 0.001f);
-          MotorSpeedLoop_Update(&vc_down, 0.001f);
+          MotorSpeedLoop_Update(&vc_down, 0.001f); */
       }
       else
       {
@@ -214,6 +219,8 @@ int main(void)
 
     if(uart_flag)
     {
+      Ua = ADC_ConvertToVoltage_V(ADC_ReadChannel(&hadc1, ADC_CHANNEL_4,ADC_SAMPLETIME_144CYCLES));
+      Ub = ADC_ConvertToVoltage_V(ADC_ReadChannel(&hadc1, ADC_CHANNEL_5,ADC_SAMPLETIME_144CYCLES));
       uart_flag = 0;
       int64_t count = Encoder_GetTotalCount(&encoder_up);
       float angle = Encoder_GetMechanicalAngle(&encoder_up);
@@ -224,8 +231,8 @@ int main(void)
              speed_raw,
              speed_filt,
              kf_speed.position,
-             angle,
-             elec_angle,
+             Ua,
+             Ub,
             vision_data.x,
             vision_data.y,
             temp,
@@ -293,7 +300,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     if (htim->Instance == TIM1) // 1ms 定时器
     {
         flag = 1;
-        if (++timercount >= 100) // 100ms
+        if (++timercount >= 10) // 100ms
         {
             timercount = 0;
             uart_flag = 1U; // 每 100ms 发送一次数据
