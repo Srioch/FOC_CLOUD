@@ -250,20 +250,22 @@ int main(void)
         Error_Handler();
       }
 
-      Ua = (1.67000f-adc_ch4_sample.filtered_voltage_v) * 10;
-      Ub = (1.67000f-adc_ch5_sample.filtered_voltage_v) * 10;
-      //Ua = adc_ch4_sample.filtered_voltage_v;
-      //Ub = adc_ch5_sample.filtered_voltage_v; 
+      /* Ua = (1.67000f-adc_ch4_sample.filtered_voltage_v) * 10;
+      Ub = (1.67000f-adc_ch5_sample.filtered_voltage_v) * 10; */
+      Ua = adc_ch4_sample.corrected_voltage_v;
+      Ub = adc_ch5_sample.corrected_voltage_v; 
       Uc = -(Ua + Ub);
 
       int64_t count = Encoder_GetTotalCount(&encoder_up);
       float angle = Encoder_GetMechanicalAngle(&encoder_up);
       float elec_angle = Encoder_GetElectricalAngle(&encoder_up);
       //uq, speed_raw, speed_filt(rad/s), kf_pos(rad), mech/elec angle(rad), kp, ki
-      printf("%.2f,%.2f,%.2f,%.2f,%.4f,%.4f,%.4f,%d,%d,%d,%d\r\n",
+      printf("%.2f,%.4f,%.4f,%.2f,%.4f,%.4f,%.4f,%d,%d,%d,%d\r\n",
              -uq,
-             speed_raw,
-             speed_filt,
+             adc_ch4_sample.filtered_voltage_v,
+             adc_ch5_sample.filtered_voltage_v,
+             /* speed_raw,
+             speed_filt, */
              kf_speed.position,
              Ua,
              Ub,
