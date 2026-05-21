@@ -77,6 +77,7 @@ static ADC_ChannelFilter_t adc_ch4_filter;
 static ADC_ChannelFilter_t adc_ch5_filter;
 static ADC_FilteredSample_t adc_ch4_sample;
 static ADC_FilteredSample_t adc_ch5_sample;
+static PhaseVoltageSample_t phase_voltage_sample;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -133,16 +134,20 @@ int main(void)
                          ADC_FILTER_DEFAULT_WINDOW, ADC_FILTER_DEFAULT_ALPHA);
   ADC_ChannelFilter_Init(&adc_ch5_filter, &hadc1, ADC_CHANNEL_5, ADC_SAMPLETIME_144CYCLES,
                          ADC_FILTER_DEFAULT_WINDOW, ADC_FILTER_DEFAULT_ALPHA);
-
-  if (ADC_ChannelFilter_Calibrate(&adc_ch4_filter, ADC_FILTER_DEFAULT_CALIB_SAMPLES) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  if (ADC_ChannelFilter_Calibrate(&adc_ch5_filter, ADC_FILTER_DEFAULT_CALIB_SAMPLES) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  ADC_ChannelFilter_SetTracking(&adc_ch4_filter,
+                                ADC_FILTER_DEFAULT_OFFSET_ALPHA,
+                                ADC_FILTER_DEFAULT_TRACK_BAND_RAW,
+                                ADC_FILTER_DEFAULT_DRIFT_LIMIT_RAW,
+                                ADC_FILTER_DEFAULT_SATURATION_MARGIN_RAW);
+  ADC_ChannelFilter_SetTracking(&adc_ch5_filter,
+                                ADC_FILTER_DEFAULT_OFFSET_ALPHA,
+                                ADC_FILTER_DEFAULT_TRACK_BAND_RAW,
+                                ADC_FILTER_DEFAULT_DRIFT_LIMIT_RAW,
+                                ADC_FILTER_DEFAULT_SATURATION_MARGIN_RAW);
+  ADC_ChannelFilter_SetOutputGain(&adc_ch4_filter, ADC_PHASE_VOLTAGE_DEFAULT_SCALE);
+  ADC_ChannelFilter_SetOutputGain(&adc_ch5_filter, ADC_PHASE_VOLTAGE_DEFAULT_SCALE);
+  ADC_ChannelFilter_SeedOffsetVoltage(&adc_ch4_filter, ADC_PHASE_VOLTAGE_DEFAULT_OFFSET_V);
+  ADC_ChannelFilter_SeedOffsetVoltage(&adc_ch5_filter, ADC_PHASE_VOLTAGE_DEFAULT_OFFSET_V);
 
   HAL_TIM_Base_Start_IT(&htim1);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
@@ -232,29 +237,27 @@ int main(void)
 
      
 
-      flag = 0;
+     flag = 0;
+
+      if (PhaseVoltageSampler_Update(&adc_ch4_filter,
+                                     &adc_ch4_sample,
+                                     &adc_ch5_filter,
+                                     &adc_ch5_sample,
+                                     &phase_voltage_sample) == HAL_OK)
+      {
+          if (phase_voltage_sample.valid != 0U)
+          {
+              Ua = phase_voltage_sample.ua_v;
+              Ub = phase_voltage_sample.ub_v;
+              Uc = phase_voltage_sample.uc_v;
+          }
+      }
     }
     
 
     if(uart_flag)
     {
       uart_flag = 0;
- 
-      if (ADC_ChannelFilter_Read(&adc_ch4_filter, &adc_ch4_sample) != HAL_OK)
-      {
-        Error_Handler();
-      }
-
-      if (ADC_ChannelFilter_Read(&adc_ch5_filter, &adc_ch5_sample) != HAL_OK)
-      {
-        Error_Handler();
-      }
-
-      /* Ua = (1.67000f-adc_ch4_sample.filtered_voltage_v) * 10;
-      Ub = (1.67000f-adc_ch5_sample.filtered_voltage_v) * 10; */
-      Ua = adc_ch4_sample.corrected_voltage_v;
-      Ub = adc_ch5_sample.corrected_voltage_v; 
-      Uc = -(Ua + Ub);
 
       int64_t count = Encoder_GetTotalCount(&encoder_up);
       float angle = Encoder_GetMechanicalAngle(&encoder_up);

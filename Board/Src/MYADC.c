@@ -1,4 +1,5 @@
 #include "MYADC.h"
+#include "math.h"
 
 static uint16_t adc_read_channel_raw(ADC_HandleTypeDef *hadc, uint32_t channel, uint32_t samplingTime)
 {
@@ -44,6 +45,48 @@ static float adc_clamp_alpha(float alpha)
     }
 
     return alpha;
+}
+
+static float adc_clamp_offset_alpha(float alpha)
+{
+    if (alpha <= 0.0f)
+    {
+        return ADC_FILTER_DEFAULT_OFFSET_ALPHA;
+    }
+
+    if (alpha > 1.0f)
+    {
+        return 1.0f;
+    }
+
+    return alpha;
+}
+
+static uint16_t adc_clamp_raw_margin(uint16_t raw)
+{
+    if (raw >= ADC_RESOLUTION)
+    {
+        return (uint16_t)(ADC_RESOLUTION - 1U);
+    }
+
+    return raw;
+}
+
+static float adc_voltage_to_raw(float voltageV)
+{
+    float raw = (voltageV * 1000.0f * (float)ADC_RESOLUTION) / (float)ADC_VREF_MV;
+
+    if (raw < 0.0f)
+    {
+        return 0.0f;
+    }
+
+    if (raw > (float)(ADC_RESOLUTION - 1U))
+    {
+        return (float)(ADC_RESOLUTION - 1U);
+    }
+
+    return raw;
 }
 
 uint16_t ADC_Read(ADC_HandleTypeDef *hadc)
@@ -128,8 +171,68 @@ void ADC_ChannelFilter_Init(ADC_ChannelFilter_t *filter,
     filter->window_size = adc_clamp_window_size(windowSize);
     filter->alpha = adc_clamp_alpha(alpha);
     filter->offset_raw = 0U;
+    filter->offset_raw_f = 0.0f;
     filter->filtered_raw = 0.0f;
+    filter->offset_alpha = ADC_FILTER_DEFAULT_OFFSET_ALPHA;
+    filter->output_gain = 1.0f;
+    filter->track_band_raw = ADC_FILTER_DEFAULT_TRACK_BAND_RAW;
+    filter->drift_limit_raw = ADC_FILTER_DEFAULT_DRIFT_LIMIT_RAW;
+    filter->saturation_margin_raw = ADC_FILTER_DEFAULT_SATURATION_MARGIN_RAW;
     filter->initialized = 0U;
+    filter->track_enable = 1U;
+    filter->valid = 0U;
+}
+
+void ADC_ChannelFilter_SetTracking(ADC_ChannelFilter_t *filter,
+                                   float offsetAlpha,
+                                   uint16_t trackBandRaw,
+                                   uint16_t driftLimitRaw,
+                                   uint16_t saturationMarginRaw)
+{
+    if (filter == NULL)
+    {
+        return;
+    }
+
+    filter->offset_alpha = adc_clamp_offset_alpha(offsetAlpha);
+    filter->track_band_raw = adc_clamp_raw_margin(trackBandRaw);
+    filter->drift_limit_raw = adc_clamp_raw_margin(driftLimitRaw);
+    filter->saturation_margin_raw = adc_clamp_raw_margin(saturationMarginRaw);
+}
+
+void ADC_ChannelFilter_SetOutputGain(ADC_ChannelFilter_t *filter, float outputGain)
+{
+    if (filter == NULL)
+    {
+        return;
+    }
+
+    if (outputGain <= 0.0f)
+    {
+        filter->output_gain = 1.0f;
+        return;
+    }
+
+    filter->output_gain = outputGain;
+}
+
+void ADC_ChannelFilter_SeedOffsetVoltage(ADC_ChannelFilter_t *filter, float offsetVoltageV)
+{
+    float offsetRaw;
+
+    if (filter == NULL)
+    {
+        return;
+    }
+
+    offsetRaw = adc_voltage_to_raw(offsetVoltageV);
+    filter->offset_raw_f = offsetRaw;
+    filter->offset_raw = (uint16_t)(offsetRaw + 0.5f);
+
+    if (filter->initialized == 0U)
+    {
+        filter->filtered_raw = offsetRaw;
+    }
 }
 
 HAL_StatusTypeDef ADC_ChannelFilter_Calibrate(ADC_ChannelFilter_t *filter, uint16_t sampleCount)
@@ -153,8 +256,10 @@ HAL_StatusTypeDef ADC_ChannelFilter_Calibrate(ADC_ChannelFilter_t *filter, uint1
     }
 
     filter->offset_raw = (uint16_t)(sum / sampleCount);
+    filter->offset_raw_f = (float)filter->offset_raw;
     filter->filtered_raw = (float)filter->offset_raw;
     filter->initialized = 1U;
+    filter->valid = 1U;
 
     return HAL_OK;
 }
@@ -190,7 +295,11 @@ void ADC_ChannelFilter_Process(ADC_ChannelFilter_t *filter,
 {
     float filteredRaw;
     float filteredVoltage;
+    float offsetVoltage;
     float correctedVoltage;
+    float offsetError;
+    float previousOffsetRaw;
+    uint8_t valid = 1U;
 
     if ((filter == NULL) || (sample == NULL))
     {
@@ -209,21 +318,41 @@ void ADC_ChannelFilter_Process(ADC_ChannelFilter_t *filter,
 
     filteredRaw = filter->filtered_raw;
     filteredVoltage = ADC_ConvertToVoltage_V((uint16_t)(filteredRaw + 0.5f));
+    offsetError = filteredRaw - filter->offset_raw_f;
+    previousOffsetRaw = filter->offset_raw_f;
 
-    if (filteredRaw >= (float)filter->offset_raw)
+    if ((raw <= filter->saturation_margin_raw) ||
+        (raw >= (uint16_t)((ADC_RESOLUTION - 1U) - filter->saturation_margin_raw)))
     {
-        correctedVoltage = ADC_ConvertToVoltage_V((uint16_t)(filteredRaw - (float)filter->offset_raw + 0.5f));
+        valid = 0U;
     }
-    else
+
+    if ((filter->track_enable != 0U) &&
+        (fabsf(offsetError) <= (float)filter->track_band_raw))
     {
-        correctedVoltage = -ADC_ConvertToVoltage_V((uint16_t)(((float)filter->offset_raw - filteredRaw) + 0.5f));
+        filter->offset_raw_f += filter->offset_alpha * offsetError;
     }
+
+    if (fabsf(filter->offset_raw_f - previousOffsetRaw) > (float)filter->drift_limit_raw)
+    {
+        valid = 0U;
+    }
+
+    filter->offset_raw = (uint16_t)(filter->offset_raw_f + 0.5f);
+    offsetVoltage = ADC_ConvertToVoltage_V((uint16_t)(filter->offset_raw_f + 0.5f));
+    correctedVoltage = (filter->offset_raw_f - filteredRaw) *
+                       (((float)ADC_VREF_MV / (float)ADC_RESOLUTION) / 1000.0f) *
+                       filter->output_gain;
+
+    filter->valid = valid;
 
     sample->raw = raw;
     sample->trimmed_raw = trimmedRaw;
     sample->filtered_raw = filteredRaw;
     sample->filtered_voltage_v = filteredVoltage;
+    sample->offset_voltage_v = offsetVoltage;
     sample->corrected_voltage_v = correctedVoltage;
+    sample->valid = valid;
 }
 
 uint16_t ADC_FilterComputeTrimmedAverage(const uint16_t *samples, uint8_t count)
@@ -265,4 +394,37 @@ uint16_t ADC_FilterComputeTrimmedAverage(const uint16_t *samples, uint8_t count)
     }
 
     return (uint16_t)(sum / count);
+}
+
+HAL_StatusTypeDef PhaseVoltageSampler_Update(ADC_ChannelFilter_t *uaFilter,
+                                             ADC_FilteredSample_t *uaSample,
+                                             ADC_ChannelFilter_t *ubFilter,
+                                             ADC_FilteredSample_t *ubSample,
+                                             PhaseVoltageSample_t *phaseSample)
+{
+    if ((uaFilter == NULL) || (uaSample == NULL) ||
+        (ubFilter == NULL) || (ubSample == NULL) ||
+        (phaseSample == NULL))
+    {
+        return HAL_ERROR;
+    }
+
+    if (ADC_ChannelFilter_Read(uaFilter, uaSample) != HAL_OK)
+    {
+        return HAL_ERROR;
+    }
+
+    if (ADC_ChannelFilter_Read(ubFilter, ubSample) != HAL_OK)
+    {
+        return HAL_ERROR;
+    }
+
+    phaseSample->ua_v = uaSample->corrected_voltage_v;
+    phaseSample->ub_v = ubSample->corrected_voltage_v;
+    phaseSample->uc_v = -(phaseSample->ua_v + phaseSample->ub_v);
+    phaseSample->ua_offset_v = uaSample->offset_voltage_v;
+    phaseSample->ub_offset_v = ubSample->offset_voltage_v;
+    phaseSample->valid = (uint8_t)((uaSample->valid != 0U) && (ubSample->valid != 0U));
+
+    return HAL_OK;
 }
