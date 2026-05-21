@@ -73,6 +73,10 @@ static VisionControl_t vc_down;
 VisionData_t frame;
 static uint32_t last_vision_tick = 0U;
 volatile float Ua, Ub, Uc;
+static ADC_ChannelFilter_t adc_ch4_filter;
+static ADC_ChannelFilter_t adc_ch5_filter;
+static ADC_FilteredSample_t adc_ch4_sample;
+static ADC_FilteredSample_t adc_ch5_sample;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -125,6 +129,21 @@ int main(void)
   MX_USART2_UART_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
+  ADC_ChannelFilter_Init(&adc_ch4_filter, &hadc1, ADC_CHANNEL_4, ADC_SAMPLETIME_144CYCLES,
+                         ADC_FILTER_DEFAULT_WINDOW, ADC_FILTER_DEFAULT_ALPHA);
+  ADC_ChannelFilter_Init(&adc_ch5_filter, &hadc1, ADC_CHANNEL_5, ADC_SAMPLETIME_144CYCLES,
+                         ADC_FILTER_DEFAULT_WINDOW, ADC_FILTER_DEFAULT_ALPHA);
+
+  if (ADC_ChannelFilter_Calibrate(&adc_ch4_filter, ADC_FILTER_DEFAULT_CALIB_SAMPLES) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  if (ADC_ChannelFilter_Calibrate(&adc_ch5_filter, ADC_FILTER_DEFAULT_CALIB_SAMPLES) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
   HAL_TIM_Base_Start_IT(&htim1);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
@@ -219,20 +238,36 @@ int main(void)
 
     if(uart_flag)
     {
-      Ua = ADC_ConvertToVoltage_V(ADC_ReadChannel(&hadc1, ADC_CHANNEL_4,ADC_SAMPLETIME_144CYCLES));
-      Ub = ADC_ConvertToVoltage_V(ADC_ReadChannel(&hadc1, ADC_CHANNEL_5,ADC_SAMPLETIME_144CYCLES));
       uart_flag = 0;
+ 
+      if (ADC_ChannelFilter_Read(&adc_ch4_filter, &adc_ch4_sample) != HAL_OK)
+      {
+        Error_Handler();
+      }
+
+      if (ADC_ChannelFilter_Read(&adc_ch5_filter, &adc_ch5_sample) != HAL_OK)
+      {
+        Error_Handler();
+      }
+
+      Ua = (1.67000f-adc_ch4_sample.filtered_voltage_v) * 10;
+      Ub = (1.67000f-adc_ch5_sample.filtered_voltage_v) * 10;
+      //Ua = adc_ch4_sample.filtered_voltage_v;
+      //Ub = adc_ch5_sample.filtered_voltage_v; 
+      Uc = -(Ua + Ub);
+
       int64_t count = Encoder_GetTotalCount(&encoder_up);
       float angle = Encoder_GetMechanicalAngle(&encoder_up);
       float elec_angle = Encoder_GetElectricalAngle(&encoder_up);
       //uq, speed_raw, speed_filt(rad/s), kf_pos(rad), mech/elec angle(rad), kp, ki
-      printf("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d\r\n",
+      printf("%.2f,%.2f,%.2f,%.2f,%.4f,%.4f,%.4f,%d,%d,%d,%d\r\n",
              -uq,
              speed_raw,
              speed_filt,
              kf_speed.position,
              Ua,
              Ub,
+             Uc,
             vision_data.x,
             vision_data.y,
             temp,
