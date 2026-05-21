@@ -200,6 +200,16 @@ void ADC_ChannelFilter_SetTracking(ADC_ChannelFilter_t *filter,
     filter->saturation_margin_raw = adc_clamp_raw_margin(saturationMarginRaw);
 }
 
+void ADC_ChannelFilter_EnableTracking(ADC_ChannelFilter_t *filter, uint8_t enable)
+{
+    if (filter == NULL)
+    {
+        return;
+    }
+
+    filter->track_enable = (enable != 0U) ? 1U : 0U;
+}
+
 void ADC_ChannelFilter_SetOutputGain(ADC_ChannelFilter_t *filter, float outputGain)
 {
     if (filter == NULL)

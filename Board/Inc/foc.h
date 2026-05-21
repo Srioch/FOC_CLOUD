@@ -64,6 +64,8 @@ float nomalizeAngle(float angle);
 
 //设置PWM输出
 void setPWM(float Ua, float Ub, float Uc,uint8_t motor_id);
+void disablePWM(uint8_t motor_id);
+void disableAllPWM(void);
 
 /**
  * @brief Set the Phase Voltage object

@@ -44,6 +44,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define DEFAULT_DT 5.0f // ms
+#define OFFSET_TRACK_ENABLE_SPEED_RAD_S 1.0f
 
 
 /* USER CODE END PD */
@@ -78,6 +79,7 @@ static ADC_ChannelFilter_t adc_ch5_filter;
 static ADC_FilteredSample_t adc_ch4_sample;
 static ADC_FilteredSample_t adc_ch5_sample;
 static PhaseVoltageSample_t phase_voltage_sample;
+static uint8_t phase_offset_track_enabled = 1U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -199,6 +201,36 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
+     if (turn_flag != 0U)
+     {
+        if (phase_offset_track_enabled != 0U)
+        {
+            ADC_ChannelFilter_EnableTracking(&adc_ch4_filter, 0U);
+            ADC_ChannelFilter_EnableTracking(&adc_ch5_filter, 0U);
+            phase_offset_track_enabled = 0U;
+        }
+     }
+     else
+     {
+        float mech_speed_abs = fabsf(Encoder_GetMechanicalVelocity(&encoder_up));
+
+        if (mech_speed_abs <= OFFSET_TRACK_ENABLE_SPEED_RAD_S)
+        {
+            if (phase_offset_track_enabled == 0U)
+            {
+                ADC_ChannelFilter_EnableTracking(&adc_ch4_filter, 1U);
+                ADC_ChannelFilter_EnableTracking(&adc_ch5_filter, 1U);
+                phase_offset_track_enabled = 1U;
+            }
+        }
+        else if (phase_offset_track_enabled != 0U)
+        {
+            ADC_ChannelFilter_EnableTracking(&adc_ch4_filter, 0U);
+            ADC_ChannelFilter_EnableTracking(&adc_ch5_filter, 0U);
+            phase_offset_track_enabled = 0U;
+        }
+     }
+
      if(flag)
     {
       if(turn_flag)
@@ -263,7 +295,7 @@ int main(void)
       float angle = Encoder_GetMechanicalAngle(&encoder_up);
       float elec_angle = Encoder_GetElectricalAngle(&encoder_up);
       //uq, speed_raw, speed_filt(rad/s), kf_pos(rad), mech/elec angle(rad), kp, ki
-      printf("%.2f,%.4f,%.4f,%.2f,%.4f,%.4f,%.4f,%d,%d,%d,%d\r\n",
+      printf("%.2f,%.6f,%.6f,%.2f,%.6f,%.6f,%.6f,%d,%d,%d,%d\r\n",
              -uq,
              adc_ch4_sample.filtered_voltage_v,
              adc_ch5_sample.filtered_voltage_v,

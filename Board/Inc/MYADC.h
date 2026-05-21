@@ -77,6 +77,7 @@ void ADC_ChannelFilter_SetTracking(ADC_ChannelFilter_t *filter,
                                    uint16_t trackBandRaw,
                                    uint16_t driftLimitRaw,
                                    uint16_t saturationMarginRaw);
+void ADC_ChannelFilter_EnableTracking(ADC_ChannelFilter_t *filter, uint8_t enable);
 void ADC_ChannelFilter_SetOutputGain(ADC_ChannelFilter_t *filter, float outputGain);
 void ADC_ChannelFilter_SeedOffsetVoltage(ADC_ChannelFilter_t *filter, float offsetVoltageV);
 HAL_StatusTypeDef ADC_ChannelFilter_Calibrate(ADC_ChannelFilter_t *filter, uint16_t sampleCount);

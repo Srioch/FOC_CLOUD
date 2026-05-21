@@ -58,6 +58,28 @@ void setPWM(float Ua, float Ub, float Uc, uint8_t motor_id)
     }
 }
 
+void disablePWM(uint8_t motor_id)
+{
+    if(motor_id == 1U)
+    {
+        __HAL_TIM_SET_COMPARE(&CLOUD_UP_TIM, CLOUD_UP_CHANNEL_1, 0U);
+        __HAL_TIM_SET_COMPARE(&CLOUD_UP_TIM, CLOUD_UP_CHANNEL_2, 0U);
+        __HAL_TIM_SET_COMPARE(&CLOUD_UP_TIM, CLOUD_UP_CHANNEL_3, 0U);
+    }
+    else if(motor_id == 2U)
+    {
+        __HAL_TIM_SET_COMPARE(&CLOUD_DOWN_TIM, CLOUD_DOWN_CHANNEL_1, 0U);
+        __HAL_TIM_SET_COMPARE(&CLOUD_DOWN_TIM, CLOUD_DOWN_CHANNEL_2, 0U);
+        __HAL_TIM_SET_COMPARE(&CLOUD_DOWN_TIM, CLOUD_DOWN_CHANNEL_3, 0U);
+    }
+}
+
+void disableAllPWM(void)
+{
+    disablePWM(MOTOR_UP);
+    disablePWM(MOTOR_DOWN);
+}
+
 //svpwm
 void setPhaseVoltage(float Uq, float Ud, float el_angle, uint8_t motor_id)// el_angle 单位为弧度
 {
