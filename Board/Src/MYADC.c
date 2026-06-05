@@ -438,3 +438,25 @@ HAL_StatusTypeDef PhaseVoltageSampler_Update(ADC_ChannelFilter_t *uaFilter,
 
     return HAL_OK;
 }
+
+void ADC_Offset_Calibrate(ADC_ChannelFilter_t *filter, PhaseVoltageSample_t *phaseSample, uint16_t sampleCount)
+{
+    if ((filter == NULL) || (phaseSample == NULL))
+    {
+        return;
+    }
+
+    phaseSample->ua_offset_v = 0.0f;
+    phaseSample->ub_offset_v = 0.0f;
+
+    for(int i = 0; i < sampleCount; i++)
+    {
+        phaseSample->ua_offset_v += ADC_ConvertToVoltage_V(ADC_Read(filter->hadc));
+        phaseSample->ub_offset_v += ADC_ConvertToVoltage_V(ADC_Read(filter->hadc));
+        HAL_Delay(1);
+    }
+    phaseSample->ua_offset_v /= (float)sampleCount;
+    phaseSample->ub_offset_v /= (float)sampleCount;
+
+
+}

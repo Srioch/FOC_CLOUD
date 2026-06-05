@@ -13,7 +13,7 @@
 #define ADC_FILTER_DEFAULT_TRACK_BAND_RAW 32U
 #define ADC_FILTER_DEFAULT_DRIFT_LIMIT_RAW 120U
 #define ADC_FILTER_DEFAULT_SATURATION_MARGIN_RAW 8U
-#define ADC_PHASE_VOLTAGE_DEFAULT_OFFSET_V 1.67f
+#define ADC_PHASE_VOLTAGE_DEFAULT_OFFSET_V 1.665f
 #define ADC_PHASE_VOLTAGE_DEFAULT_SCALE 10.0f
 
 typedef struct
@@ -92,5 +92,7 @@ HAL_StatusTypeDef PhaseVoltageSampler_Update(ADC_ChannelFilter_t *uaFilter,
                                              ADC_ChannelFilter_t *ubFilter,
                                              ADC_FilteredSample_t *ubSample,
                                              PhaseVoltageSample_t *phaseSample);
+
+void ADC_Offset_Calibrate(ADC_ChannelFilter_t *filter, PhaseVoltageSample_t *phaseSample, uint16_t sampleCount);
 
 #endif

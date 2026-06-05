@@ -45,6 +45,8 @@
 /* USER CODE BEGIN PD */
 #define DEFAULT_DT 5.0f // ms
 #define OFFSET_TRACK_ENABLE_SPEED_RAD_S 1.0f
+#define ADC_STARTUP_SETTLE_DELAY_MS 20U
+#define ADC_STARTUP_CALIB_SAMPLES ADC_FILTER_DEFAULT_CALIB_SAMPLES
 
 
 /* USER CODE END PD */
@@ -148,8 +150,6 @@ int main(void)
                                 ADC_FILTER_DEFAULT_SATURATION_MARGIN_RAW);
   ADC_ChannelFilter_SetOutputGain(&adc_ch4_filter, ADC_PHASE_VOLTAGE_DEFAULT_SCALE);
   ADC_ChannelFilter_SetOutputGain(&adc_ch5_filter, ADC_PHASE_VOLTAGE_DEFAULT_SCALE);
-  ADC_ChannelFilter_SeedOffsetVoltage(&adc_ch4_filter, ADC_PHASE_VOLTAGE_DEFAULT_OFFSET_V);
-  ADC_ChannelFilter_SeedOffsetVoltage(&adc_ch5_filter, ADC_PHASE_VOLTAGE_DEFAULT_OFFSET_V);
 
   HAL_TIM_Base_Start_IT(&htim1);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
@@ -158,6 +158,16 @@ int main(void)
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
+  disableAllPWM();
+  HAL_Delay(ADC_STARTUP_SETTLE_DELAY_MS);
+  if (ADC_ChannelFilter_Calibrate(&adc_ch4_filter, ADC_STARTUP_CALIB_SAMPLES) != HAL_OK)
+  {
+    ADC_ChannelFilter_SeedOffsetVoltage(&adc_ch4_filter, ADC_PHASE_VOLTAGE_DEFAULT_OFFSET_V);
+  }
+  if (ADC_ChannelFilter_Calibrate(&adc_ch5_filter, ADC_STARTUP_CALIB_SAMPLES) != HAL_OK)
+  {
+    ADC_ChannelFilter_SeedOffsetVoltage(&adc_ch5_filter, ADC_PHASE_VOLTAGE_DEFAULT_OFFSET_V);
+  }
   UART_SetHandle(&huart1);
   UART_StartReceiveIT(&huart1);
   UART_StartReceiveIT(&huart2);
@@ -190,6 +200,8 @@ int main(void)
   pid_cloud_y.Kp = PID_CLOUD_KP_DEFAULT;
   kf_speed.R_measure = 0.01f;   /* 编码器位置测量噪声 */
   kf_speed.Q_speed = 0.2f;      /* 速度过程噪声，越大响应越快 */
+
+
   
   /* USER CODE END 2 */
 
@@ -279,9 +291,12 @@ int main(void)
       {
           if (phase_voltage_sample.valid != 0U)
           {
-              Ua = phase_voltage_sample.ua_v;
-              Ub = phase_voltage_sample.ub_v;
-              Uc = phase_voltage_sample.uc_v;
+              Ua = phase_voltage_sample.ua_v / (20.0f * 0.1f ) ;
+              Ub = phase_voltage_sample.ub_v/ (20.0f * 0.1f );
+              Uc = phase_voltage_sample.uc_v/ (20.0f * 0.1f );
+              /* Ua = phase_voltage_sample.ua_v;
+              Ub = phase_voltage_sample.ub_v; 
+              Uc = phase_voltage_sample.uc_v; */
           }
       }
     }
