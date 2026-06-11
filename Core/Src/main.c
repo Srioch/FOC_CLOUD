@@ -20,20 +20,20 @@
 #include "main.h"
 #include "adc.h"
 #include "dma.h"
+#include "gpio.h"
 #include "i2c.h"
 #include "tim.h"
 #include "usart.h"
-#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "MYADC.h"
+#include "encoder.h"
 #include "foc.h"
 #include "pid.h"
-#include "encoder.h"
 #include "uart.h"
-#include "kalman_filter.h"
-#include "MYADC.h"
 
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,12 +43,13 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define DEFAULT_DT 5.0f // ms
+#define DEFAULT_DT 5.0f
 #define OFFSET_TRACK_ENABLE_SPEED_RAD_S 1.0f
 #define ADC_STARTUP_SETTLE_DELAY_MS 20U
 #define ADC_STARTUP_CALIB_SAMPLES ADC_FILTER_DEFAULT_CALIB_SAMPLES
-
-
+#define FOC_LOOP_DT_S 0.001f
+#define FOC_SPEED_LIMIT_RAD_S 20.0f
+#define FOC_UQ_LIMIT_V 6.0f
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -59,29 +60,35 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-volatile uint16_t timercount = 0;
-volatile uint8_t vision_counter = 0;
+volatile uint16_t timercount = 0U;
+volatile uint8_t vision_counter = 0U;
 volatile uint8_t vision_flag = 0U;
-static kalman_filter_pos_speed_t kf_speed;
-static Encoder_t encoder;
 static volatile uint8_t flag = 0U;
 static volatile uint8_t uart_flag = 0U;
-float uq;
+
+float uq = 0.0f;
 float speed_raw = 0.0f;
 float speed_filt = 0.0f;
-static uint8_t speed_loop_div = 0U;
 static uint16_t temp = 0U;
-static VisionControl_t vc_up;
-static VisionControl_t vc_down;
-VisionData_t frame;
+
+VisionData_t frame = {0};
 static uint32_t last_vision_tick = 0U;
-volatile float Ua, Ub, Uc;
+
+volatile float Ua = 0.0f;
+volatile float Ub = 0.0f;
+volatile float Uc = 0.0f;
+
 static ADC_ChannelFilter_t adc_ch4_filter;
 static ADC_ChannelFilter_t adc_ch5_filter;
 static ADC_FilteredSample_t adc_ch4_sample;
 static ADC_FilteredSample_t adc_ch5_sample;
 static PhaseVoltageSample_t phase_voltage_sample;
 static uint8_t phase_offset_track_enabled = 1U;
+
+static PID_t down_speed_pid;
+static PID_t down_angle_pid;
+static FocController_t foc_up_controller;
+static FocController_t foc_down_controller;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -101,28 +108,9 @@ void SystemClock_Config(void);
   */
 int main(void)
 {
-
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
-
-  /* MCU Configuration--------------------------------------------------------*/
-
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
-
-  /* Configure the system clock */
   SystemClock_Config();
 
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
-
-  /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_I2C1_Init();
@@ -133,6 +121,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_ADC1_Init();
+
   /* USER CODE BEGIN 2 */
   ADC_ChannelFilter_Init(&adc_ch4_filter, &hadc1, ADC_CHANNEL_4, ADC_SAMPLETIME_144CYCLES,
                          ADC_FILTER_DEFAULT_WINDOW, ADC_FILTER_DEFAULT_ALPHA);
@@ -159,6 +148,7 @@ int main(void)
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
   disableAllPWM();
+
   HAL_Delay(ADC_STARTUP_SETTLE_DELAY_MS);
   if (ADC_ChannelFilter_Calibrate(&adc_ch4_filter, ADC_STARTUP_CALIB_SAMPLES) != HAL_OK)
   {
@@ -168,13 +158,16 @@ int main(void)
   {
     ADC_ChannelFilter_SeedOffsetVoltage(&adc_ch5_filter, ADC_PHASE_VOLTAGE_DEFAULT_OFFSET_V);
   }
+
   UART_SetHandle(&huart1);
   UART_StartReceiveIT(&huart1);
   UART_StartReceiveIT(&huart2);
+
   Encoder_Init(&encoder_up, &hi2c1, AS5600_RESOLUTION, FOC_POLE_PAIRS);
   HAL_Delay(300);
   Encoder_Init(&encoder_down, &hi2c2, AS5600_RESOLUTION, FOC_POLE_PAIRS);
   HAL_Delay(300);
+
   if (Encoder_Start(&encoder_up) != HAL_OK)
   {
     Error_Handler();
@@ -185,103 +178,117 @@ int main(void)
     Error_Handler();
   }
   HAL_Delay(1000);
-  kalman_filter_pos_speed_Init(&kf_speed);
-  PID_InitSpeedLoop(&pid_speed, 0.001f, 6.0f);
-  PID_InitCloudLoop(&pid_cloud_x, 0.001f, 6.0f);
-  PID_InitCloudLoop(&pid_cloud_y, 0.001f, 6.0f);
-  VisionControl_Init(&vc_up , &pid_speed, &kf_speed, &encoder_up, MOTOR_UP);
-  VisionControl_Init(&vc_down , &pid_speed, &kf_speed, &encoder_down, MOTOR_DOWN);
-  PID_InitCloudLoop(&vc_up.pid_vis, 0.005f, 20.0f);
-  PID_InitCloudLoop(&vc_down.pid_vis, 0.005f, 20.0f); 
-  PID_InitSpeedLoop(&vc_up.pid_speed, 0.001f, 6.0f);
-  PID_InitSpeedLoop(&vc_down.pid_speed, 0.001f, 6.0f);
-  
-  pid_cloud_x.Kp = PID_CLOUD_KP_DEFAULT;
-  pid_cloud_y.Kp = PID_CLOUD_KP_DEFAULT;
-  kf_speed.R_measure = 0.01f;   /* 编码器位置测量噪声 */
-  kf_speed.Q_speed = 0.2f;      /* 速度过程噪声，越大响应越快 */
 
+  PID_InitAngleLoop(&pid_angle, FOC_LOOP_DT_S, FOC_SPEED_LIMIT_RAD_S);
+  PID_InitSpeedLoop(&pid_speed, FOC_LOOP_DT_S, FOC_UQ_LIMIT_V);
+  PID_InitCloudLoop(&pid_cloud_y, FOC_LOOP_DT_S, FOC_SPEED_LIMIT_RAD_S);
 
-  
+  PID_InitAngleLoop(&down_angle_pid, FOC_LOOP_DT_S, FOC_SPEED_LIMIT_RAD_S);
+  PID_InitSpeedLoop(&down_speed_pid, FOC_LOOP_DT_S, FOC_UQ_LIMIT_V);
+  PID_InitCloudLoop(&pid_cloud_x, FOC_LOOP_DT_S, FOC_SPEED_LIMIT_RAD_S);
+
+  FocController_Init(&foc_up_controller,
+                     &encoder_up,
+                     MOTOR_UP,
+                     &pid_angle,
+                     &pid_speed,
+                     &pid_cloud_y,
+                     FOC_LOOP_DT_S,
+                     FOC_SPEED_LIMIT_RAD_S,
+                     FOC_UQ_LIMIT_V);
+  FocController_Init(&foc_down_controller,
+                     &encoder_down,
+                     MOTOR_DOWN,
+                     &down_angle_pid,
+                     &down_speed_pid,
+                     &pid_cloud_x,
+                     FOC_LOOP_DT_S,
+                     FOC_SPEED_LIMIT_RAD_S,
+                     FOC_UQ_LIMIT_V);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-
-     if (turn_flag != 0U)
-     {
-        if (phase_offset_track_enabled != 0U)
-        {
-            ADC_ChannelFilter_EnableTracking(&adc_ch4_filter, 0U);
-            ADC_ChannelFilter_EnableTracking(&adc_ch5_filter, 0U);
-            phase_offset_track_enabled = 0U;
-        }
-     }
-     else
-     {
-        float mech_speed_abs = fabsf(Encoder_GetMechanicalVelocity(&encoder_up));
-
-        if (mech_speed_abs <= OFFSET_TRACK_ENABLE_SPEED_RAD_S)
-        {
-            if (phase_offset_track_enabled == 0U)
-            {
-                ADC_ChannelFilter_EnableTracking(&adc_ch4_filter, 1U);
-                ADC_ChannelFilter_EnableTracking(&adc_ch5_filter, 1U);
-                phase_offset_track_enabled = 1U;
-            }
-        }
-        else if (phase_offset_track_enabled != 0U)
-        {
-            ADC_ChannelFilter_EnableTracking(&adc_ch4_filter, 0U);
-            ADC_ChannelFilter_EnableTracking(&adc_ch5_filter, 0U);
-            phase_offset_track_enabled = 0U;
-        }
-     }
-
-     if(flag)
+    if (turn_flag != 0U)
     {
-      if(turn_flag)
-        //
+      if (phase_offset_track_enabled != 0U)
+      {
+        ADC_ChannelFilter_EnableTracking(&adc_ch4_filter, 0U);
+        ADC_ChannelFilter_EnableTracking(&adc_ch5_filter, 0U);
+        phase_offset_track_enabled = 0U;
+      }
+    }
+    else
+    {
+      float mech_speed_abs = fabsf(Encoder_GetMechanicalVelocity(&encoder_up));
+
+      if (mech_speed_abs <= OFFSET_TRACK_ENABLE_SPEED_RAD_S)
+      {
+        if (phase_offset_track_enabled == 0U)
         {
-          
-          SpeedLoop_Update(&encoder_up, &kf_speed, 0.005f, 10.0f);
-          
-          
-          /* if (UART_TryGetVisionFrame(&frame))
-          {
-              last_vision_tick = HAL_GetTick();
+          ADC_ChannelFilter_EnableTracking(&adc_ch4_filter, 1U);
+          ADC_ChannelFilter_EnableTracking(&adc_ch5_filter, 1U);
+          phase_offset_track_enabled = 1U;
+        }
+      }
+      else if (phase_offset_track_enabled != 0U)
+      {
+        ADC_ChannelFilter_EnableTracking(&adc_ch4_filter, 0U);
+        ADC_ChannelFilter_EnableTracking(&adc_ch5_filter, 0U);
+        phase_offset_track_enabled = 0U;
+      }
+    }
 
-              VisionOuterLoop(&vc_up,   (float)frame.y, DEFAULT_CONTORL_Y,frame.find, 0.005f);
-              VisionOuterLoop(&vc_down, (float)frame.x, DEFAULT_CONTORL_X,frame.find, 0.005f);
-          }
+    if (vision_flag != 0U)
+    {
+      vision_flag = 0U;
+      if (UART_TryGetVisionFrame(&frame) != 0U)
+      {
+        last_vision_tick = HAL_GetTick();
+      }
+    }
 
-          if ((HAL_GetTick() - last_vision_tick) > 50U)
-          {
-              vc_up.speed_ref = 0.0f;
-              vc_down.speed_ref = 0.0f;
-              PID_Reset(&vc_up.pid_vis);
-              PID_Reset(&vc_down.pid_vis);
-              PID_Reset(&vc_up.pid_speed);
-              PID_Reset(&vc_down.pid_speed);
-          }
+    if (flag != 0U)
+    {
+      if (turn_flag != 0U)
+      {
+        foc_up_controller.mode = FOC_MODE_POSITION;
+        foc_up_controller.target_position_rad = target_angle;
+        runFoc(&foc_up_controller);
 
-          temp = MotorSpeedLoop_Update(&vc_up, 0.001f);
-          MotorSpeedLoop_Update(&vc_down, 0.001f); */
+        foc_down_controller.mode = FOC_MODE_DISABLED;
+        runFoc(&foc_down_controller);
+      }
+      else if ((frame.find != 0U) && ((HAL_GetTick() - last_vision_tick) <= 50U))
+      {
+        foc_up_controller.mode = FOC_MODE_VISION;
+        foc_up_controller.vision_measure = (float)frame.y;
+        foc_up_controller.vision_center = DEFAULT_CONTORL_Y;
+        foc_up_controller.vision_valid = frame.find;
+        runFoc(&foc_up_controller);
+
+        foc_down_controller.mode = FOC_MODE_VISION;
+        foc_down_controller.vision_measure = (float)frame.x;
+        foc_down_controller.vision_center = DEFAULT_CONTORL_X;
+        foc_down_controller.vision_valid = frame.find;
+        runFoc(&foc_down_controller);
       }
       else
       {
-          vc_up.speed_ref = 0.0f;
-          vc_down.speed_ref = 0.0f;
+        frame.find = 0U;
+        foc_up_controller.mode = FOC_MODE_DISABLED;
+        runFoc(&foc_up_controller);
+        foc_down_controller.mode = FOC_MODE_DISABLED;
+        runFoc(&foc_down_controller);
       }
 
-     
-
-     flag = 0;
+      speed_raw = foc_up_controller.state.mechanical_speed_rad_s;
+      speed_filt = speed_raw;
+      uq = foc_up_controller.state.uq_applied_v;
+      temp = (uint16_t)foc_up_controller.mode;
+      flag = 0U;
 
       if (PhaseVoltageSampler_Update(&adc_ch4_filter,
                                      &adc_ch4_sample,
@@ -289,47 +296,34 @@ int main(void)
                                      &adc_ch5_sample,
                                      &phase_voltage_sample) == HAL_OK)
       {
-          if (phase_voltage_sample.valid != 0U)
-          {
-              Ua = phase_voltage_sample.ua_v / (20.0f * 0.1f ) ;
-              Ub = phase_voltage_sample.ub_v/ (20.0f * 0.1f );
-              Uc = phase_voltage_sample.uc_v/ (20.0f * 0.1f );
-              /* Ua = phase_voltage_sample.ua_v;
-              Ub = phase_voltage_sample.ub_v; 
-              Uc = phase_voltage_sample.uc_v; */
-          }
+        if (phase_voltage_sample.valid != 0U)
+        {
+          Ua = phase_voltage_sample.ua_v / (20.0f * 0.1f);
+          Ub = phase_voltage_sample.ub_v / (20.0f * 0.1f);
+          Uc = phase_voltage_sample.uc_v / (20.0f * 0.1f);
+        }
       }
     }
-    
 
-    if(uart_flag)
+    if (uart_flag != 0U)
     {
-      uart_flag = 0;
+      uart_flag = 0U;
 
-      int64_t count = Encoder_GetTotalCount(&encoder_up);
-      float angle = Encoder_GetMechanicalAngle(&encoder_up);
-      float elec_angle = Encoder_GetElectricalAngle(&encoder_up);
-      //uq, speed_raw, speed_filt(rad/s), kf_pos(rad), mech/elec angle(rad), kp, ki
       printf("%.2f,%.6f,%.6f,%.2f,%.6f,%.6f,%.6f,%d,%d,%d,%d\r\n",
-             -uq,
+             uq,
              adc_ch4_sample.filtered_voltage_v,
              adc_ch5_sample.filtered_voltage_v,
-             /* speed_raw,
-             speed_filt, */
-             kf_speed.position,
+             foc_up_controller.state.mechanical_angle_rad,
              Ua,
              Ub,
              Uc,
-            vision_data.x,
-            vision_data.y,
-            temp,
-            vision_data.find
-             );
+             vision_data.x,
+             vision_data.y,
+             temp,
+             vision_data.find);
     }
-      
-   
-    UART_ProcessPendingCommand();
 
+    UART_ProcessPendingCommand();
   }
   /* USER CODE END 3 */
 }
@@ -343,14 +337,9 @@ void SystemClock_Config(void)
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-  /** Configure the main internal regulator output voltage
-  */
   __HAL_RCC_PWR_CLK_ENABLE();
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
@@ -365,10 +354,8 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK
+                              | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
@@ -381,26 +368,24 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-    if (htim->Instance == TIM1) // 1ms 定时器
+  if (htim->Instance == TIM1)
+  {
+    flag = 1U;
+    if (++timercount >= 10U)
     {
-        flag = 1;
-        if (++timercount >= 10) // 100ms
-        {
-            timercount = 0;
-            uart_flag = 1U; // 每 100ms 发送一次数据
-        }
-
-        if(++vision_counter >= 5) // 10ms
-        {
-            vision_counter = 0;
-            vision_flag = 1U; // 每 10ms 设置一次视觉处理标志
-        }
+      timercount = 0U;
+      uart_flag = 1U;
     }
-}
 
+    if (++vision_counter >= 5U)
+    {
+      vision_counter = 0U;
+      vision_flag = 1U;
+    }
+  }
+}
 /* USER CODE END 4 */
 
 /**
@@ -409,14 +394,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   */
 void Error_Handler(void)
 {
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1)
   {
   }
-  /* USER CODE END Error_Handler_Debug */
 }
+
 #ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
@@ -427,9 +410,7 @@ void Error_Handler(void)
   */
 void assert_failed(uint8_t *file, uint32_t line)
 {
-  /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
+  (void)file;
+  (void)line;
 }
 #endif /* USE_FULL_ASSERT */

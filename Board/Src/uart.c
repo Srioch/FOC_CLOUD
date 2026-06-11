@@ -217,23 +217,20 @@ void UART_CommandHandler(const char *command)
     else if(strcmp(command, "STOP") == 0)
     {
         turn_flag = 0U;
-        __HAL_TIM_SET_COMPARE(&CLOUD_UP_TIM, CLOUD_UP_CHANNEL_1, 0);
-        __HAL_TIM_SET_COMPARE(&CLOUD_UP_TIM, CLOUD_UP_CHANNEL_2, 0);
-        __HAL_TIM_SET_COMPARE(&CLOUD_UP_TIM, CLOUD_UP_CHANNEL_3, 0);
-        __HAL_TIM_SET_COMPARE(&CLOUD_DOWN_TIM, CLOUD_DOWN_CHANNEL_1, 0);
-        __HAL_TIM_SET_COMPARE(&CLOUD_DOWN_TIM, CLOUD_DOWN_CHANNEL_2, 0);
-        __HAL_TIM_SET_COMPARE(&CLOUD_DOWN_TIM, CLOUD_DOWN_CHANNEL_3, 0);
+        vision_data.find = 0U;
+        vision_frame_ready = 0U;
+        disableAllPWM();
          printf("Stop command received\r\n");
     }
     else if(sscanf(command, "SET KP:%f", &temp) == 1)
     {
-            pid_speed.Kp = temp;
-        printf("Angle control KP set to: %.2f\r\n", pid_speed.Kp);
+            pid_angle.Kp = temp;
+        printf("Position loop KP set to: %.2f\r\n", pid_angle.Kp);
     }
     else if(sscanf(command, "SET KI:%f", &temp) == 1)
     {
-            pid_speed.Ki = temp;
-        printf("Angle control KI set to: %.2f\r\n", pid_speed.Ki);
+            pid_angle.Ki = temp;
+        printf("Position loop KI set to: %.2f\r\n", pid_angle.Ki);
     }
 
     else

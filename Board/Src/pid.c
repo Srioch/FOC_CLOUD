@@ -7,6 +7,7 @@
 
 
 PID_t pid_speed;
+PID_t pid_angle;
 PID_t pid_cloud_x;
 PID_t pid_cloud_y;
 
