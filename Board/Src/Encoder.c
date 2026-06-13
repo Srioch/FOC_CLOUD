@@ -181,7 +181,7 @@ void Encoder_Update(Encoder_t *enc, float dt_s)
 	}
 
 	int32_t now_count = encoder_raw_to_count(enc, raw_angle);
-	int32_t delta = encoder_calc_delta(enc->last_count, now_count, (int32_t)enc->cpr);
+	int32_t delta = encoder_calc_delta(enc->last_count, now_count, (int32_t)enc->cpr) * ENCODER_SIGN;
 
 	enc->last_count = now_count;
 	enc->total_count += (int64_t)delta;
@@ -218,7 +218,7 @@ void Encoder_Updata(Encoder_t *enc)
 	
 
 	int32_t now_count = encoder_raw_to_count(enc, raw_angle);
-	int32_t delta = encoder_calc_delta(enc->last_count, now_count, (int32_t)enc->cpr);
+	int32_t delta = encoder_calc_delta(enc->last_count, now_count, (int32_t)enc->cpr) * ENCODER_SIGN;
 
 	enc->last_count = now_count;
 	enc->total_count += (int64_t)delta;

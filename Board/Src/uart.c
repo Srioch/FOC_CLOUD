@@ -12,6 +12,7 @@
 
 
 #include "uart.h"
+#include "foc_drive.h"
 #include "uartdma.h"
 
 
@@ -209,6 +210,20 @@ void UART_CommandHandler(const char *command)
         target_angle = temp / 180.0f * M_PI; // 将角度转换为弧度
         printf("Target angle set to: %.2f deg (%.4f rad)\r\n", temp, target_angle);
     }
+    else if ((sscanf(command, "SET EOFFSET DEG:%f", &temp) == 1) ||
+             (sscanf(command, "SET EOFFSET DEG %f", &temp) == 1))
+    {
+        Encoder_SetElectricalZeroOffset(&encoder_up, temp / 180.0f * M_PI);
+        printf("Up electrical zero offset set to: %.2f deg (%.4f rad)\r\n",
+               temp,
+               encoder_up.elec_zero_offset_rad);
+    }
+    else if ((sscanf(command, "SET EOFFSET:%f", &temp) == 1) ||
+             (sscanf(command, "SET EOFFSET %f", &temp) == 1))
+    {
+        Encoder_SetElectricalZeroOffset(&encoder_up, temp);
+        printf("Up electrical zero offset set to: %.4f rad\r\n", encoder_up.elec_zero_offset_rad);
+    }
     else if(strcmp(command, "TURN") == 0)
     {
         turn_flag = 1U;
@@ -219,13 +234,25 @@ void UART_CommandHandler(const char *command)
         turn_flag = 0U;
         vision_data.find = 0U;
         vision_frame_ready = 0U;
-        disableAllPWM();
+        FOC_Drive_Stop();
          printf("Stop command received\r\n");
     }
     else if(sscanf(command, "SET KP:%f", &temp) == 1)
     {
             pid_angle.Kp = temp;
         printf("Position loop KP set to: %.2f\r\n", pid_angle.Kp);
+    }
+    else if ((sscanf(command, "SET KPX:%f", &temp) == 1) ||
+             (sscanf(command, "SET KPX %f", &temp) == 1))
+    {
+            pid_cloud_x.Kp = temp;
+        printf("Vision X loop KP set to: %.2f\r\n", pid_cloud_x.Kp);
+    }
+    else if ((sscanf(command, "SET KPY:%f", &temp) == 1) ||
+             (sscanf(command, "SET KPY %f", &temp) == 1))
+    {
+            pid_cloud_y.Kp = temp;
+        printf("Vision Y loop KP set to: %.2f\r\n", pid_cloud_y.Kp);
     }
     else if(sscanf(command, "SET KI:%f", &temp) == 1)
     {
@@ -237,9 +264,6 @@ void UART_CommandHandler(const char *command)
     {
         printf("Unknown command: %s\r\n", command);
     }
-
-    printf("Received command: %s\r\n", command);
-
 }
 
 uint8_t UART_TryGetVisionFrame(VisionData_t *frame)

@@ -507,14 +507,14 @@
               <FilePath>../Board/Src/foc.c</FilePath>
             </File>
             <File>
+              <FileName>foc_drive.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Board/Src/foc_drive.c</FilePath>
+            </File>
+            <File>
               <FileName>kalman_filter.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Board/Src/kalman_filter.c</FilePath>
-            </File>
-            <File>
-              <FileName>motor_sensor.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Board/Src/motor_sensor.c</FilePath>
             </File>
             <File>
               <FileName>OLED.c</FileName>

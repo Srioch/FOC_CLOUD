@@ -195,9 +195,9 @@ float PID_UpdateAngleWrapped(PID_t *pid, float setpoint_rad, float measurement_r
     return pid_update_from_error(pid, error);
 }
 
-void PID_InitSpeedLoop(PID_t *pid, float dt_s, float uq_limit)
+void PID_InitSpeedLoop(PID_t *pid, float dt_s, float iq_limit_a)
 {
-    float limit = fabsf(uq_limit);
+    float limit = fabsf(iq_limit_a);
 
     PID_Init(pid);
     if (pid == 0)
@@ -237,6 +237,30 @@ void PID_InitAngleLoop(PID_t *pid, float dt_s, float speed_limit_rad_s)
     if (limit <= 0.0f)
     {
         limit = PID_ANGLE_OUT_LIMIT_DEFAULT;
+    }
+    PID_SetOutputLimit(pid, -limit, limit);
+    PID_SetDerivativeFilter(pid, PID_DEFAULT_DERIV_TAU_S);
+    PID_Reset(pid);
+}
+
+void PID_InitCurrentLoop(PID_t *pid, float dt_s, float voltage_limit_v)
+{
+    float limit = fabsf(voltage_limit_v);
+
+    PID_Init(pid);
+    if (pid == 0)
+    {
+        return;
+    }
+
+    pid->Kp = PID_CURRENT_KP_DEFAULT;
+    pid->Ki = PID_CURRENT_KI_DEFAULT;
+    pid->Kd = PID_CURRENT_KD_DEFAULT;
+
+    PID_SetDt(pid, dt_s);
+    if (limit <= 0.0f)
+    {
+        limit = -PID_DEFAULT_OUT_MIN;
     }
     PID_SetOutputLimit(pid, -limit, limit);
     PID_SetDerivativeFilter(pid, PID_DEFAULT_DERIV_TAU_S);

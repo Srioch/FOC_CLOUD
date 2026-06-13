@@ -8,7 +8,8 @@
  *
  * Suggested loop arrangement:
  * - Angle loop output: speed command (rad/s)
- * - Speed loop output: Uq command (V)
+ * - Speed loop output: q-axis current command (A)
+ * - Current loop output: d/q-axis voltage command (V)
  */
 
 #define PID_DEFAULT_DT_S            0.001f
@@ -16,20 +17,26 @@
 #define PID_DEFAULT_OUT_MIN         (-6.0f)
 #define PID_DEFAULT_OUT_MAX         (6.0f)
 
-/* Speed loop defaults: input/output unit = rad/s -> V */
+/* Speed loop defaults: input/output unit = rad/s -> A */
 #define PID_SPEED_KP_DEFAULT        0.06f
-#define PID_SPEED_KI_DEFAULT        0.05f
+#define PID_SPEED_KI_DEFAULT        0.02f
 #define PID_SPEED_KD_DEFAULT        0.00f
 
+/* Current loop defaults: input/output unit = A -> V */
+#define PID_CURRENT_KP_DEFAULT      0.90f
+#define PID_CURRENT_KI_DEFAULT      5.00f
+#define PID_CURRENT_KD_DEFAULT      0.00f
+
 /* Angle loop defaults: input/output unit = rad -> rad/s */
-#define PID_ANGLE_KP_DEFAULT        20.00f
+#define PID_ANGLE_KP_DEFAULT        16.00f
 #define PID_ANGLE_KI_DEFAULT        0.00f
-#define PID_ANGLE_KD_DEFAULT        0.00f
+#define PID_ANGLE_KD_DEFAULT        0.04f
 #define PID_ANGLE_OUT_LIMIT_DEFAULT 30.0f
 
 #define PID_CLOUD_KP_DEFAULT 0.2f
 #define PID_CLOUD_KI_DEFAULT 0.0f
 #define PID_CLOUD_KD_DEFAULT 0.0f
+
 
 
 
@@ -74,8 +81,9 @@ float PID_WrapPmPi(float angle_rad);
 float PID_UpdateAngleWrapped(PID_t *pid, float setpoint_rad, float measurement_rad);
 
 /* Project-friendly presets */
-void PID_InitSpeedLoop(PID_t *pid, float dt_s, float uq_limit);
+void PID_InitSpeedLoop(PID_t *pid, float dt_s, float iq_limit_a);
 void PID_InitAngleLoop(PID_t *pid, float dt_s, float speed_limit_rad_s);
+void PID_InitCurrentLoop(PID_t *pid, float dt_s, float voltage_limit_v);
 
 float PID_PositionalControl(PID_t *pid, float target, float current);
 

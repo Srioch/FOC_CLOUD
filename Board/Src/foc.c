@@ -1,22 +1,20 @@
 #include "foc.h"
 
-#include "math.h"
+#include <math.h>
 
-static float normalizeAngleSigned(float angle)
+#define FOC_ONE_OVER_SQRT3 0.5773502691896258f
+
+static float foc_clampf(float value, float min_value, float max_value)
 {
-    float two_pi = 2.0f * M_PI;
-    float a = fmodf(angle, two_pi);
-
-    if (a > M_PI)
+    if (value < min_value)
     {
-        a -= two_pi;
+        return min_value;
     }
-    else if (a < -M_PI)
+    if (value > max_value)
     {
-        a += two_pi;
+        return max_value;
     }
-
-    return a;
+    return value;
 }
 
 static float foc_clamp_abs(float value, float limit)
@@ -28,24 +26,55 @@ static float foc_clamp_abs(float value, float limit)
         abs_limit = VOLTAGE_LIMIT;
     }
 
-    return _COMSTRAIN(value, -abs_limit, abs_limit);
+    return foc_clampf(value, -abs_limit, abs_limit);
 }
 
-static void foc_update_measurements(FocController_t *ctrl)
+static void foc_limit_voltage_vector(float *ud_v, float *uq_v, float limit_v)
 {
-    ctrl->state.mechanical_angle_rad = Encoder_GetMechanicalAngle(ctrl->enc);
-    ctrl->state.electrical_angle_rad = Encoder_GetElectricalAngle(ctrl->enc);
-    ctrl->state.mechanical_speed_rad_s = Encoder_GetMechanicalVelocity(ctrl->enc);
+    float abs_limit = fabsf(limit_v);
+    float mag_sq = 0.0f;
+    float limit_sq = 0.0f;
+    float scale = 0.0f;
+
+    if ((ud_v == NULL) || (uq_v == NULL))
+    {
+        return;
+    }
+
+    if (abs_limit <= 0.0f)
+    {
+        abs_limit = VOLTAGE_LIMIT;
+    }
+
+    mag_sq = (*ud_v * *ud_v) + (*uq_v * *uq_v);
+    limit_sq = abs_limit * abs_limit;
+    if ((mag_sq <= limit_sq) || (mag_sq <= 0.0f))
+    {
+        return;
+    }
+
+    scale = abs_limit / sqrtf(mag_sq);
+    *ud_v *= scale;
+    *uq_v *= scale;
 }
 
-static void foc_disable_output(FocController_t *ctrl)
+static uint32_t foc_voltage_to_compare(float voltage_v, uint32_t timer_top)
 {
-    disablePWM(ctrl->motor_id);
-    ctrl->state.output_enabled = 0U;
-    ctrl->state.speed_target_rad_s = 0.0f;
-    ctrl->state.uq_command_v = 0.0f;
-    ctrl->state.uq_applied_v = 0.0f;
-    ctrl->state.vision_error = 0.0f;
+    float scaled = 0.0f;
+
+    voltage_v = foc_clampf(voltage_v, 0.0f, VOLTAGE_LIMIT);
+    scaled = (voltage_v / VOLTAGE_LIMIT) * (float)timer_top;
+
+    if (scaled <= 0.0f)
+    {
+        return 0U;
+    }
+    if (scaled >= (float)timer_top)
+    {
+        return timer_top;
+    }
+
+    return (uint32_t)scaled;
 }
 
 static void foc_reset_pid(PID_t *pid)
@@ -56,46 +85,143 @@ static void foc_reset_pid(PID_t *pid)
     }
 }
 
-static void foc_apply_output(FocController_t *ctrl, float uq_command_v, uint8_t invert_for_closed_loop)
+static void foc_update_measurements(FocMotor_t *motor)
 {
-    float uq_applied = foc_clamp_abs(uq_command_v, ctrl->uq_limit_v);
+    motor->state.mechanical_angle_rad = Encoder_GetMechanicalAngle(motor->enc);
+    motor->state.electrical_angle_rad = Encoder_GetElectricalAngle(motor->enc);
+    motor->state.mechanical_speed_rad_s = Encoder_GetMechanicalVelocity(motor->enc);
+}
 
-    ctrl->state.uq_command_v = uq_command_v;
+static void foc_disable_output(FocMotor_t *motor)
+{
+    disablePWM(motor->motor_id);
+    motor->state.output_enabled = 0U;
+    motor->state.speed_target_rad_s = 0.0f;
+    motor->state.id_target_a = 0.0f;
+    motor->state.iq_target_a = 0.0f;
+    motor->state.id_measured_a = 0.0f;
+    motor->state.iq_measured_a = 0.0f;
+    motor->state.ud_command_v = 0.0f;
+    motor->state.uq_command_v = 0.0f;
+    motor->state.ud_applied_v = 0.0f;
+    motor->state.uq_applied_v = 0.0f;
+    motor->state.vision_error = 0.0f;
+    motor->state.current_valid = 0U;
+}
+
+static void foc_apply_voltage_output(FocMotor_t *motor,
+                                     float ud_command_v,
+                                     float uq_command_v,
+                                     uint8_t invert_for_closed_loop)
+{
+    float ud_applied_v = ud_command_v;
+    float uq_applied_v = uq_command_v;
+
+    motor->state.ud_command_v = ud_command_v;
+    motor->state.uq_command_v = uq_command_v;
     if (invert_for_closed_loop != 0U)
     {
-        uq_applied = -uq_applied;
+        ud_applied_v = -ud_applied_v;
+        uq_applied_v = -uq_applied_v;
     }
-    ctrl->state.uq_applied_v = uq_applied;
-    torqueControl(uq_applied, ctrl->state.electrical_angle_rad, ctrl->motor_id);
-    ctrl->state.output_enabled = 1U;
+
+    foc_limit_voltage_vector(&ud_applied_v, &uq_applied_v, motor->uq_limit_v);
+
+    motor->state.ud_applied_v = ud_applied_v;
+    motor->state.uq_applied_v = uq_applied_v;
+    setPhaseVoltage(uq_applied_v, ud_applied_v, motor->state.electrical_angle_rad, motor->motor_id);
+    motor->state.output_enabled = 1U;
 }
 
-float GetelectricalAngle(float mechanicalAngle)
+static void foc_apply_current_output(FocMotor_t *motor,
+                                     float id_target_a,
+                                     float iq_target_a,
+                                     uint8_t invert_for_closed_loop)
 {
-    return mechanicalAngle * FOC_POLE_PAIRS;
+    float ud_command_v = 0.0f;
+    float uq_command_v = 0.0f;
+
+    if (invert_for_closed_loop != 0U)
+    {
+        iq_target_a = -iq_target_a;
+    }
+
+    motor->state.id_target_a = foc_clamp_abs(id_target_a, motor->iq_limit_a);
+    motor->state.iq_target_a = foc_clamp_abs(iq_target_a, motor->iq_limit_a);
+
+    if ((motor->pid_current_d == NULL) ||
+        (motor->pid_current_q == NULL) ||
+        (motor->dq_current.valid == 0U))
+    {
+        foc_reset_pid(motor->pid_current_d);
+        foc_reset_pid(motor->pid_current_q);
+        foc_disable_output(motor);
+        return;
+    }
+
+    ud_command_v = PID_Update(motor->pid_current_d,
+                              motor->state.id_target_a,
+                              motor->dq_current.id_a);
+    uq_command_v = PID_Update(motor->pid_current_q,
+                              motor->state.iq_target_a,
+                              motor->dq_current.iq_a);
+    foc_apply_voltage_output(motor, ud_command_v, uq_command_v, 0U);
 }
 
-float nomalizeAngle(float angle)
+float Foc_GetElectricalAngle(float mechanical_angle_rad)
+{
+    return mechanical_angle_rad * FOC_POLE_PAIRS;
+}
+
+float Foc_NormalizeAngle(float angle_rad)
 {
     float two_pi = 2.0f * M_PI;
-    float a = fmodf(angle, two_pi);
-    return (a < 0.0f) ? (a + two_pi) : a;
+    float normalized = fmodf(angle_rad, two_pi);
+
+    return (normalized < 0.0f) ? (normalized + two_pi) : normalized;
+}
+
+void Foc_TransformPhaseCurrentToDq(const FocPhaseCurrent_t *phase_current,
+                                   float electrical_angle_rad,
+                                   FocDqCurrent_t *dq_current)
+{
+    float ialpha = 0.0f;
+    float ibeta = 0.0f;
+    float sin_angle = 0.0f;
+    float cos_angle = 0.0f;
+
+    if (dq_current == NULL)
+    {
+        return;
+    }
+
+    dq_current->id_a = 0.0f;
+    dq_current->iq_a = 0.0f;
+    dq_current->valid = 0U;
+
+    if ((phase_current == NULL) || (phase_current->valid == 0U))
+    {
+        return;
+    }
+
+    ialpha = phase_current->ia_a;
+    ibeta = (phase_current->ia_a + (2.0f * phase_current->ib_a)) * FOC_ONE_OVER_SQRT3;
+
+    electrical_angle_rad = Foc_NormalizeAngle(electrical_angle_rad);
+    sin_angle = sinf(electrical_angle_rad);
+    cos_angle = cosf(electrical_angle_rad);
+
+    dq_current->id_a = (ialpha * cos_angle) + (ibeta * sin_angle);
+    dq_current->iq_a = (-ialpha * sin_angle) + (ibeta * cos_angle);
+    dq_current->valid = 1U;
 }
 
 void setPWM(float Ua, float Ub, float Uc, uint8_t motor_id)
 {
-    uint32_t top = __HAL_TIM_GET_AUTORELOAD(&htim2);
-    uint16_t pwm1;
-    uint16_t pwm2;
-    uint16_t pwm3;
-
-    Ua = _COMSTRAIN(Ua, 0.0f, VOLTAGE_LIMIT);
-    Ub = _COMSTRAIN(Ub, 0.0f, VOLTAGE_LIMIT);
-    Uc = _COMSTRAIN(Uc, 0.0f, VOLTAGE_LIMIT);
-
-    pwm1 = _COMSTRAIN((uint16_t)((Ua / VOLTAGE_LIMIT) * (float)top), 0U, (uint16_t)top);
-    pwm2 = _COMSTRAIN((uint16_t)((Ub / VOLTAGE_LIMIT) * (float)top), 0U, (uint16_t)top);
-    pwm3 = _COMSTRAIN((uint16_t)((Uc / VOLTAGE_LIMIT) * (float)top), 0U, (uint16_t)top);
+    uint32_t timer_top = __HAL_TIM_GET_AUTORELOAD(&htim2);
+    uint32_t pwm1 = foc_voltage_to_compare(Ua, timer_top);
+    uint32_t pwm2 = foc_voltage_to_compare(Ub, timer_top);
+    uint32_t pwm3 = foc_voltage_to_compare(Uc, timer_top);
 
     if (motor_id == MOTOR_UP)
     {
@@ -133,350 +259,334 @@ void disableAllPWM(void)
     disablePWM(MOTOR_DOWN);
 }
 
-void setPhaseVoltage(float Uq, float Ud, float el_angle, uint8_t motor_id)
+void setPhaseVoltage(float Uq, float Ud, float electrical_angle_rad, uint8_t motor_id)
 {
-    float Ualpha;
-    float Ubeta;
-    float v_center;
-    float Ua;
-    float Ub;
-    float Uc;
+    float ualpha = 0.0f;
+    float ubeta = 0.0f;
+    float v_center = 0.0f;
+    float ua = 0.0f;
+    float ub = 0.0f;
+    float uc = 0.0f;
 
-    (void)Ud;
+    electrical_angle_rad = Foc_NormalizeAngle(electrical_angle_rad + ANGLE_DEADZONE);
 
-    el_angle = nomalizeAngle(el_angle + ANGLE_DEADZONE);
-
-    Ualpha = -Uq * sinf(el_angle);
-    Ubeta = Uq * cosf(el_angle);
+    ualpha = (Ud * cosf(electrical_angle_rad)) - (Uq * sinf(electrical_angle_rad));
+    ubeta = (Ud * sinf(electrical_angle_rad)) + (Uq * cosf(electrical_angle_rad));
 
     v_center = VOLTAGE_LIMIT * 0.5f;
-    Ua = Ualpha + v_center;
-    Ub = -0.5f * Ualpha + (sqrtf(3.0f) / 2.0f) * Ubeta + v_center;
-    Uc = -0.5f * Ualpha - (sqrtf(3.0f) / 2.0f) * Ubeta + v_center;
+    ua = ualpha + v_center;
+    ub = -0.5f * ualpha + (sqrtf(3.0f) * 0.5f) * ubeta + v_center;
+    uc = -0.5f * ualpha - (sqrtf(3.0f) * 0.5f) * ubeta + v_center;
 
-    setPWM(Ua, Ub, Uc, motor_id);
+    setPWM(ua, ub, uc, motor_id);
 }
 
-float velocityToVoltage(float velocity)
+void FocMotor_Init(FocMotor_t *motor,
+                   Encoder_t *enc,
+                   uint8_t motor_id,
+                   PID_t *pid_position,
+                   PID_t *pid_speed,
+                   PID_t *pid_vision,
+                   PID_t *pid_current_d,
+                   PID_t *pid_current_q,
+                   float dt_s,
+                   float speed_limit_rad_s,
+                   float iq_limit_a,
+                   float uq_limit_v)
 {
-    float voltage = (velocity / 100.0f) * VOLTAGE_LIMIT;
-    return _COMSTRAIN(voltage, 0.0f, VOLTAGE_LIMIT);
-}
-
-void openLoopSpeedControl(float target_rpm, float dt)
-{
-    static float mech_angle = 0.0f;
-    float rev_per_sec = target_rpm / 60.0f;
-    float mech_omega = rev_per_sec * 2.0f * M_PI;
-    float electrical;
-    float Uq;
-
-    mech_angle += mech_omega * dt;
-    mech_angle = nomalizeAngle(mech_angle);
-
-    electrical = GetelectricalAngle(mech_angle);
-    Uq = velocityToVoltage(target_rpm);
-    setPhaseVoltage(Uq, 0.0f, electrical, MOTOR_UP);
-}
-
-float angleControl(float target_angle, float current_angle, float Kp)
-{
-    float error = normalizeAngleSigned(target_angle - current_angle);
-    float uq = _COMSTRAIN((error * Kp), -VOLTAGE_LIMIT, VOLTAGE_LIMIT);
-
-    setPhaseVoltage(uq, 0.0f, GetelectricalAngle(current_angle), MOTOR_UP);
-    return uq;
-}
-
-float torqueControl(float Uq, float eleangle, uint8_t motor_id)
-{
-    float uq = _COMSTRAIN(Uq, -VOLTAGE_LIMIT, VOLTAGE_LIMIT);
-
-    setPhaseVoltage(uq, 0.0f, eleangle, motor_id);
-    return uq;
-}
-
-void FocController_Init(FocController_t *ctrl,
-                        Encoder_t *enc,
-                        uint8_t motor_id,
-                        PID_t *pid_position,
-                        PID_t *pid_speed,
-                        PID_t *pid_vision,
-                        float dt_s,
-                        float speed_limit_rad_s,
-                        float uq_limit_v)
-{
-    if (ctrl == NULL)
+    if (motor == NULL)
     {
         return;
     }
 
-    ctrl->enc = enc;
-    ctrl->motor_id = motor_id;
-    ctrl->pid_position = pid_position;
-    ctrl->pid_speed = pid_speed;
-    ctrl->pid_vision = pid_vision;
-    ctrl->dt_s = (dt_s > 0.0f) ? dt_s : PID_DEFAULT_DT_S;
-    ctrl->speed_limit_rad_s = fabsf(speed_limit_rad_s);
-    if (ctrl->speed_limit_rad_s <= 0.0f)
+    motor->enc = enc;
+    motor->motor_id = motor_id;
+    motor->pid_position = pid_position;
+    motor->pid_speed = pid_speed;
+    motor->pid_vision = pid_vision;
+    motor->pid_current_d = pid_current_d;
+    motor->pid_current_q = pid_current_q;
+    motor->dt_s = (dt_s > 0.0f) ? dt_s : PID_DEFAULT_DT_S;
+    motor->speed_limit_rad_s = fabsf(speed_limit_rad_s);
+    if (motor->speed_limit_rad_s <= 0.0f)
     {
-        ctrl->speed_limit_rad_s = PID_ANGLE_OUT_LIMIT_DEFAULT;
+        motor->speed_limit_rad_s = PID_ANGLE_OUT_LIMIT_DEFAULT;
     }
-    ctrl->uq_limit_v = fabsf(uq_limit_v);
-    if (ctrl->uq_limit_v <= 0.0f)
+    motor->iq_limit_a = fabsf(iq_limit_a);
+    if (motor->iq_limit_a <= 0.0f)
     {
-        ctrl->uq_limit_v = VOLTAGE_LIMIT;
+        motor->iq_limit_a = -PID_DEFAULT_OUT_MIN;
     }
-    ctrl->mode = FOC_MODE_DISABLED;
-    ctrl->target_position_rad = 0.0f;
-    ctrl->target_speed_rad_s = 0.0f;
-    ctrl->target_uq_v = 0.0f;
-    ctrl->vision_measure = 0.0f;
-    ctrl->vision_center = 0.0f;
-    ctrl->vision_valid = 0U;
-    ctrl->state.mechanical_angle_rad = 0.0f;
-    ctrl->state.electrical_angle_rad = 0.0f;
-    ctrl->state.mechanical_speed_rad_s = 0.0f;
-    ctrl->state.speed_target_rad_s = 0.0f;
-    ctrl->state.uq_command_v = 0.0f;
-    ctrl->state.uq_applied_v = 0.0f;
-    ctrl->state.vision_error = 0.0f;
-    ctrl->state.output_enabled = 0U;
+    motor->uq_limit_v = fabsf(uq_limit_v);
+    if (motor->uq_limit_v <= 0.0f)
+    {
+        motor->uq_limit_v = VOLTAGE_LIMIT;
+    }
 
-    if (ctrl->pid_position != NULL)
+    motor->mode = FOC_MODE_DISABLED;
+    motor->target_position_rad = 0.0f;
+    motor->target_speed_rad_s = 0.0f;
+    motor->target_iq_a = 0.0f;
+    motor->vision.measure = 0.0f;
+    motor->vision.center = 0.0f;
+    motor->vision.valid = 0U;
+    motor->phase_current.ia_a = 0.0f;
+    motor->phase_current.ib_a = 0.0f;
+    motor->phase_current.ic_a = 0.0f;
+    motor->phase_current.valid = 0U;
+    motor->dq_current.id_a = 0.0f;
+    motor->dq_current.iq_a = 0.0f;
+    motor->dq_current.valid = 0U;
+    motor->state.mechanical_angle_rad = 0.0f;
+    motor->state.electrical_angle_rad = 0.0f;
+    motor->state.mechanical_speed_rad_s = 0.0f;
+    motor->state.speed_target_rad_s = 0.0f;
+    motor->state.id_target_a = 0.0f;
+    motor->state.iq_target_a = 0.0f;
+    motor->state.id_measured_a = 0.0f;
+    motor->state.iq_measured_a = 0.0f;
+    motor->state.ud_command_v = 0.0f;
+    motor->state.uq_command_v = 0.0f;
+    motor->state.ud_applied_v = 0.0f;
+    motor->state.uq_applied_v = 0.0f;
+    motor->state.vision_error = 0.0f;
+    motor->state.current_valid = 0U;
+    motor->state.output_enabled = 0U;
+
+    if (motor->pid_position != NULL)
     {
-        PID_SetDt(ctrl->pid_position, ctrl->dt_s);
-        PID_SetOutputLimit(ctrl->pid_position, -ctrl->speed_limit_rad_s, ctrl->speed_limit_rad_s);
-        PID_Reset(ctrl->pid_position);
+        PID_SetDt(motor->pid_position, motor->dt_s);
+        PID_SetOutputLimit(motor->pid_position, -motor->speed_limit_rad_s, motor->speed_limit_rad_s);
+        PID_Reset(motor->pid_position);
     }
-    if (ctrl->pid_speed != NULL)
+    if (motor->pid_speed != NULL)
     {
-        PID_SetDt(ctrl->pid_speed, ctrl->dt_s);
-        PID_SetOutputLimit(ctrl->pid_speed, -ctrl->uq_limit_v, ctrl->uq_limit_v);
-        PID_Reset(ctrl->pid_speed);
+        PID_SetDt(motor->pid_speed, motor->dt_s);
+        PID_SetOutputLimit(motor->pid_speed, -motor->iq_limit_a, motor->iq_limit_a);
+        PID_Reset(motor->pid_speed);
     }
-    if (ctrl->pid_vision != NULL)
+    if (motor->pid_vision != NULL)
     {
-        PID_SetDt(ctrl->pid_vision, ctrl->dt_s);
-        PID_SetOutputLimit(ctrl->pid_vision, -ctrl->speed_limit_rad_s, ctrl->speed_limit_rad_s);
-        PID_Reset(ctrl->pid_vision);
+        PID_SetDt(motor->pid_vision, motor->dt_s);
+        PID_SetOutputLimit(motor->pid_vision, -motor->speed_limit_rad_s, motor->speed_limit_rad_s);
+        PID_Reset(motor->pid_vision);
+    }
+    if (motor->pid_current_d != NULL)
+    {
+        PID_SetDt(motor->pid_current_d, motor->dt_s);
+        PID_SetOutputLimit(motor->pid_current_d, -motor->uq_limit_v, motor->uq_limit_v);
+        PID_Reset(motor->pid_current_d);
+    }
+    if (motor->pid_current_q != NULL)
+    {
+        PID_SetDt(motor->pid_current_q, motor->dt_s);
+        PID_SetOutputLimit(motor->pid_current_q, -motor->uq_limit_v, motor->uq_limit_v);
+        PID_Reset(motor->pid_current_q);
     }
 }
 
-void FocController_Reset(FocController_t *ctrl)
+void FocMotor_Reset(FocMotor_t *motor)
 {
-    if (ctrl == NULL)
+    if (motor == NULL)
     {
         return;
     }
 
-    foc_reset_pid(ctrl->pid_position);
-    foc_reset_pid(ctrl->pid_speed);
-    foc_reset_pid(ctrl->pid_vision);
-    ctrl->target_speed_rad_s = 0.0f;
-    ctrl->target_uq_v = 0.0f;
-    ctrl->vision_measure = 0.0f;
-    ctrl->vision_center = 0.0f;
-    ctrl->vision_valid = 0U;
-    foc_disable_output(ctrl);
+    foc_reset_pid(motor->pid_position);
+    foc_reset_pid(motor->pid_speed);
+    foc_reset_pid(motor->pid_vision);
+    foc_reset_pid(motor->pid_current_d);
+    foc_reset_pid(motor->pid_current_q);
+    motor->mode = FOC_MODE_DISABLED;
+    motor->target_position_rad = 0.0f;
+    motor->target_speed_rad_s = 0.0f;
+    motor->target_iq_a = 0.0f;
+    motor->vision.measure = 0.0f;
+    motor->vision.center = 0.0f;
+    motor->vision.valid = 0U;
+    foc_disable_output(motor);
 }
 
-void runFoc(FocController_t *ctrl)
+void FocMotor_SetDisabled(FocMotor_t *motor)
 {
-    if ((ctrl == NULL) || (ctrl->enc == NULL) || (ctrl->enc->is_started == 0U))
+    FocMotor_Reset(motor);
+}
+
+void FocMotor_SetTorque(FocMotor_t *motor, float iq_a)
+{
+    if (motor == NULL)
     {
         return;
     }
 
-    Encoder_Update(ctrl->enc, ctrl->dt_s);
-    foc_update_measurements(ctrl);
+    motor->mode = FOC_MODE_TORQUE;
+    motor->target_iq_a = iq_a;
+}
 
-    if (ctrl->mode == FOC_MODE_DISABLED)
+void FocMotor_SetSpeed(FocMotor_t *motor, float speed_rad_s)
+{
+    if (motor == NULL)
     {
-        FocController_Reset(ctrl);
         return;
     }
 
-    ctrl->state.speed_target_rad_s = 0.0f;
-    ctrl->state.vision_error = 0.0f;
+    motor->mode = FOC_MODE_SPEED;
+    motor->target_speed_rad_s = speed_rad_s;
+}
 
-    switch (ctrl->mode)
+void FocMotor_SetPosition(FocMotor_t *motor, float position_rad)
+{
+    if (motor == NULL)
+    {
+        return;
+    }
+
+    motor->mode = FOC_MODE_POSITION;
+    motor->target_position_rad = position_rad;
+}
+
+void FocMotor_SetVision(FocMotor_t *motor, const FocVisionCommand_t *command)
+{
+    if ((motor == NULL) || (command == NULL))
+    {
+        return;
+    }
+
+    motor->mode = FOC_MODE_VISION;
+    motor->vision = *command;
+}
+
+void FocMotor_SetPhaseCurrent(FocMotor_t *motor, const FocPhaseCurrent_t *phase_current)
+{
+    if (motor == NULL)
+    {
+        return;
+    }
+
+    if (phase_current == NULL)
+    {
+        motor->phase_current.ia_a = 0.0f;
+        motor->phase_current.ib_a = 0.0f;
+        motor->phase_current.ic_a = 0.0f;
+        motor->phase_current.valid = 0U;
+        return;
+    }
+
+    motor->phase_current = *phase_current;
+}
+
+void FocMotor_Tick(FocMotor_t *motor)
+{
+    float iq_command_a = 0.0f;
+
+    if ((motor == NULL) || (motor->enc == NULL) || (motor->enc->is_started == 0U))
+    {
+        return;
+    }
+
+    Encoder_Update(motor->enc, motor->dt_s);
+    foc_update_measurements(motor);
+
+    if (motor->mode == FOC_MODE_DISABLED)
+    {
+        FocMotor_Reset(motor);
+        return;
+    }
+
+    Foc_TransformPhaseCurrentToDq(&motor->phase_current,
+                                  motor->state.electrical_angle_rad,
+                                  &motor->dq_current);
+    motor->state.id_measured_a = motor->dq_current.id_a;
+    motor->state.iq_measured_a = motor->dq_current.iq_a;
+    motor->state.current_valid = motor->dq_current.valid;
+    if (motor->dq_current.valid == 0U)
+    {
+        foc_reset_pid(motor->pid_speed);
+        foc_reset_pid(motor->pid_current_d);
+        foc_reset_pid(motor->pid_current_q);
+        foc_disable_output(motor);
+        return;
+    }
+
+    motor->state.speed_target_rad_s = 0.0f;
+    motor->state.vision_error = 0.0f;
+
+    switch (motor->mode)
     {
     case FOC_MODE_TORQUE:
-        foc_apply_output(ctrl, ctrl->target_uq_v, 0U);
+        foc_apply_current_output(motor, 0.0f, motor->target_iq_a, 0U);
         break;
 
     case FOC_MODE_SPEED:
-        if (ctrl->pid_speed == NULL)
+        if (motor->pid_speed == NULL)
         {
-            FocController_Reset(ctrl);
+            FocMotor_Reset(motor);
             return;
         }
-        ctrl->state.speed_target_rad_s = foc_clamp_abs(ctrl->target_speed_rad_s, ctrl->speed_limit_rad_s);
-        foc_apply_output(ctrl,
-                         PID_Update(ctrl->pid_speed,
-                                    ctrl->state.speed_target_rad_s,
-                                    ctrl->state.mechanical_speed_rad_s),
-                         1U);
+        motor->state.speed_target_rad_s = foc_clamp_abs(motor->target_speed_rad_s, motor->speed_limit_rad_s);
+        iq_command_a = PID_Update(motor->pid_speed,
+                                  motor->state.speed_target_rad_s,
+                                  motor->state.mechanical_speed_rad_s);
+        foc_apply_current_output(motor, 0.0f, iq_command_a, 0U);
         break;
 
     case FOC_MODE_POSITION:
-        if ((ctrl->pid_position == NULL) || (ctrl->pid_speed == NULL))
+        if ((motor->pid_position == NULL) || (motor->pid_speed == NULL))
         {
-            FocController_Reset(ctrl);
+            FocMotor_Reset(motor);
             return;
         }
-        ctrl->state.speed_target_rad_s = PID_UpdateAngleWrapped(ctrl->pid_position,
-                                                                ctrl->target_position_rad,
-                                                                ctrl->state.mechanical_angle_rad);
-        ctrl->state.speed_target_rad_s = foc_clamp_abs(ctrl->state.speed_target_rad_s, ctrl->speed_limit_rad_s);
-        foc_apply_output(ctrl,
-                         PID_Update(ctrl->pid_speed,
-                                    ctrl->state.speed_target_rad_s,
-                                    ctrl->state.mechanical_speed_rad_s),
-                         1U);
+        motor->state.speed_target_rad_s = PID_UpdateAngleWrapped(motor->pid_position,
+                                                                 motor->target_position_rad,
+                                                                 motor->state.mechanical_angle_rad);
+        motor->state.speed_target_rad_s = foc_clamp_abs(motor->state.speed_target_rad_s, motor->speed_limit_rad_s);
+        iq_command_a = PID_Update(motor->pid_speed,
+                                  motor->state.speed_target_rad_s,
+                                  motor->state.mechanical_speed_rad_s);
+        foc_apply_current_output(motor, 0.0f, iq_command_a, 1U);
         break;
 
     case FOC_MODE_VISION:
-        if ((ctrl->pid_vision == NULL) || (ctrl->pid_speed == NULL) || (ctrl->vision_valid == 0U))
+        if ((motor->pid_vision == NULL) || (motor->pid_speed == NULL) || (motor->vision.valid == 0U))
         {
-            FocController_Reset(ctrl);
+            FocMotor_Reset(motor);
             return;
         }
-        ctrl->state.vision_error = ctrl->vision_center - ctrl->vision_measure;
-        if (fabsf(ctrl->state.vision_error) < 4.0f)
+        motor->state.vision_error = motor->vision.center - motor->vision.measure;
+        if (fabsf(motor->state.vision_error) < 4.0f)
         {
-            ctrl->state.vision_error = 0.0f;
+            motor->state.vision_error = 0.0f;
         }
-        ctrl->state.speed_target_rad_s = PID_Update(ctrl->pid_vision, 0.0f, -ctrl->state.vision_error);
-        ctrl->state.speed_target_rad_s = foc_clamp_abs(ctrl->state.speed_target_rad_s, ctrl->speed_limit_rad_s);
-        foc_apply_output(ctrl,
-                         PID_Update(ctrl->pid_speed,
-                                    ctrl->state.speed_target_rad_s,
-                                    ctrl->state.mechanical_speed_rad_s),
-                         1U);
+        motor->state.speed_target_rad_s = PID_Update(motor->pid_vision, 0.0f, motor->state.vision_error);
+        motor->state.speed_target_rad_s = foc_clamp_abs(motor->state.speed_target_rad_s, motor->speed_limit_rad_s);
+        iq_command_a = PID_Update(motor->pid_speed,
+                                  motor->state.speed_target_rad_s,
+                                  motor->state.mechanical_speed_rad_s);
+        foc_apply_current_output(motor, 0.0f, iq_command_a, 0U);
         break;
 
     default:
-        FocController_Reset(ctrl);
+        FocMotor_Reset(motor);
         break;
     }
 }
 
-void runFocVision(FocController_t *ctrl, const FocVisionCommand_t *cmd)
+const FocState_t *FocMotor_GetState(const FocMotor_t *motor)
 {
-    if ((ctrl == NULL) || (cmd == NULL))
+    if (motor == NULL)
     {
-        return;
+        return NULL;
     }
 
-    ctrl->vision_measure = cmd->measure;
-    ctrl->vision_center = cmd->center;
-    ctrl->vision_valid = cmd->valid;
-    ctrl->mode = FOC_MODE_VISION;
-    runFoc(ctrl);
+    return &motor->state;
 }
 
-void SpeedLoop_Update(Encoder_t *enc, kalman_filter_pos_speed_t *kf, float dt_s, float speed_ref)
+FocMode_t FocMotor_GetMode(const FocMotor_t *motor)
 {
-    static FocController_t speed_ctrl;
-    static uint8_t initialized = 0U;
-
-    (void)kf;
-
-    if (initialized == 0U)
+    if (motor == NULL)
     {
-        FocController_Init(&speed_ctrl,
-                           enc,
-                           MOTOR_UP,
-                           NULL,
-                           &pid_speed,
-                           NULL,
-                           dt_s,
-                           PID_ANGLE_OUT_LIMIT_DEFAULT,
-                           VOLTAGE_LIMIT);
-        initialized = 1U;
+        return FOC_MODE_DISABLED;
     }
 
-    speed_ctrl.enc = enc;
-    speed_ctrl.dt_s = dt_s;
-    speed_ctrl.mode = FOC_MODE_SPEED;
-    speed_ctrl.target_speed_rad_s = speed_ref;
-    runFoc(&speed_ctrl);
-}
-
-float Cloud_Control(uint16_t x, uint16_t y, uint8_t find)
-{
-    float temp = 0.0f;
-
-    if (find != 0U)
-    {
-        Moto_Control(x, &pid_cloud_x, DEFAULT_CONTORL_X, &encoder_up, MOTOR_UP);
-        temp = Moto_Control(y, &pid_cloud_y, DEFAULT_CONTORL_Y, &encoder_down, MOTOR_DOWN);
-    }
-
-    return temp;
-}
-
-float Moto_Control(uint16_t measure, PID_t *pid, uint16_t target, Encoder_t *enc, uint8_t motor_id)
-{
-    (void)_COMSTRAIN((uint16_t)((target - measure) * DEFAULT_KP), 0U, 100U);
-    return torqueControl(_COMSTRAIN(PID_Update(pid, (float)target, (float)measure), -VOLTAGE_LIMIT, VOLTAGE_LIMIT),
-                         Encoder_GetElectricalAngle(enc),
-                         motor_id);
-}
-
-void VisionControl_Init(VisionControl_t *vc, PID_t *pid_speed, kalman_filter_pos_speed_t *kf_speed, Encoder_t *enc, uint8_t motor_id)
-{
-    if ((vc == NULL) || (pid_speed == NULL) || (kf_speed == NULL))
-    {
-        return;
-    }
-
-    vc->pid_speed = *pid_speed;
-    vc->kf_speed = *kf_speed;
-    vc->enc = enc;
-    vc->motor_id = motor_id;
-    vc->speed_ref = 0.0f;
-    vc->uq = 0.0f;
-}
-
-void VisionOuterLoop(VisionControl_t *vc, float measure, float center, uint8_t valid, float dt)
-{
-    float err;
-
-    (void)dt;
-
-    if (vc == NULL)
-    {
-        return;
-    }
-
-    if (valid == 0U)
-    {
-        vc->speed_ref = 0.0f;
-        PID_Reset(&vc->pid_vis);
-        return;
-    }
-
-    err = center - measure;
-    if (fabsf(err) < 4.0f)
-    {
-        err = 0.0f;
-    }
-
-    vc->speed_ref = PID_Update(&vc->pid_vis, 0.0f, -err);
-    vc->speed_ref = _COMSTRAIN(vc->speed_ref, -20.0f, 20.0f);
-}
-
-float MotorSpeedLoop_Update(VisionControl_t *vc, float dt_s)
-{
-    if ((vc == NULL) || (vc->enc == NULL))
-    {
-        return 0.0f;
-    }
-
-    Encoder_Update(vc->enc, dt_s);
-    vc->uq = PID_Update(&vc->pid_speed, vc->speed_ref, Encoder_GetMechanicalVelocity(vc->enc));
-    return torqueControl(-vc->uq, Encoder_GetElectricalAngle(vc->enc), vc->motor_id);
+    return motor->mode;
 }

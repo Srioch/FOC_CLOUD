@@ -226,6 +226,11 @@ void ADC_ChannelFilter_SetOutputGain(ADC_ChannelFilter_t *filter, float outputGa
     filter->output_gain = outputGain;
 }
 
+/**
+ * @brief 为ADC滤波器设定初始偏置电压
+ * @param filter ADC滤波器实例
+ * @param offsetVoltageV 偏置电压（伏特）
+ */
 void ADC_ChannelFilter_SeedOffsetVoltage(ADC_ChannelFilter_t *filter, float offsetVoltageV)
 {
     float offsetRaw;
@@ -331,8 +336,8 @@ void ADC_ChannelFilter_Process(ADC_ChannelFilter_t *filter,
     offsetError = filteredRaw - filter->offset_raw_f;
     previousOffsetRaw = filter->offset_raw_f;
 
-    if ((raw <= filter->saturation_margin_raw) ||
-        (raw >= (uint16_t)((ADC_RESOLUTION - 1U) - filter->saturation_margin_raw)))
+    if ((trimmedRaw <= filter->saturation_margin_raw) ||
+        (trimmedRaw >= (uint16_t)((ADC_RESOLUTION - 1U) - filter->saturation_margin_raw)))
     {
         valid = 0U;
     }
