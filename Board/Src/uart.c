@@ -204,6 +204,8 @@ void UART_CommandHandler(const char *command)
     // 这里可以添加对接收到的命令的具体处理逻辑
     // 例如，根据命令内容执行不同的操作
     float temp = 0.0f;
+    float speed = 0.0f;
+    float uq = 0.0f;
     if ((sscanf(command, "SET ANGLE:%f", &temp) == 1) ||
         (sscanf(command, "SET ANGLE %f", &temp) == 1))
     {
@@ -258,6 +260,13 @@ void UART_CommandHandler(const char *command)
     {
             pid_angle.Ki = temp;
         printf("Position loop KI set to: %.2f\r\n", pid_angle.Ki);
+    }
+
+    else if ((sscanf(command, "OL:%f:%f", &speed, &uq) == 2) ||
+             (sscanf(command, "OL %f %f", &speed, &uq) == 2))
+    {
+        FOC_Drive_SetOpenLoop(MOTOR_UP, speed, uq);
+        printf("Open-loop UP: speed=%.2f rad/s, Uq=%.2f V\r\n", speed, uq);
     }
 
     else

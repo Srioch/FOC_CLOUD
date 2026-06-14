@@ -14,7 +14,7 @@
 #define M_PI 3.14159265358979323846f
 #endif
 
-#define FOC_POLE_PAIRS 7
+#define FOC_POLE_PAIRS 14
 #define VOLTAGE_LIMIT 12.12f
 #define ANGLE_DEADZONE 0.0f
 
@@ -39,7 +39,8 @@ typedef enum
     FOC_MODE_TORQUE = 1U,
     FOC_MODE_SPEED = 2U,
     FOC_MODE_POSITION = 3U,
-    FOC_MODE_VISION = 4U
+    FOC_MODE_VISION = 4U,
+    FOC_MODE_OPEN_LOOP = 5U
 } FocMode_t;
 
 typedef struct
@@ -78,6 +79,13 @@ typedef struct
 
 typedef struct
 {
+    float speed_rad_s;
+    float uq_v;
+    float angle_rad;
+} FocOpenLoopState_t;
+
+typedef struct
+{
     float measure;
     float center;
     uint8_t valid;
@@ -104,6 +112,7 @@ typedef struct
     float target_speed_rad_s;
     float target_iq_a;
     FocVisionCommand_t vision;
+    FocOpenLoopState_t open_loop;
     FocPhaseCurrent_t phase_current;
     FocDqCurrent_t dq_current;
 
@@ -139,6 +148,7 @@ void FocMotor_SetTorque(FocMotor_t *motor, float iq_a);
 void FocMotor_SetSpeed(FocMotor_t *motor, float speed_rad_s);
 void FocMotor_SetPosition(FocMotor_t *motor, float position_rad);
 void FocMotor_SetVision(FocMotor_t *motor, const FocVisionCommand_t *command);
+void FocMotor_SetOpenLoop(FocMotor_t *motor, float speed_rad_s, float uq_v);
 void FocMotor_SetPhaseCurrent(FocMotor_t *motor, const FocPhaseCurrent_t *phase_current);
 void FocMotor_Tick(FocMotor_t *motor);
 const FocState_t *FocMotor_GetState(const FocMotor_t *motor);

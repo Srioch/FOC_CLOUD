@@ -92,6 +92,7 @@ static uint16_t s_mode_snapshot = 0U;
 static uint8_t s_vision_was_active = 0U;
 static float s_up_hold_angle_rad = 0.0f;
 static float s_down_hold_angle_rad = 0.0f;
+static uint8_t s_open_loop_active = 0U;
 
 float uq = 0.0f;
 float speed_raw = 0.0f;
@@ -500,6 +501,40 @@ HAL_StatusTypeDef FOC_Drive_Init(void)
     return HAL_OK;
 }
 
+void FOC_Drive_SetOpenLoop(uint8_t motor_id, float speed_rad_s, float uq_v)
+{
+    FocMotor_t *motor = NULL;
+
+    if (s_initialized == 0U)
+    {
+        return;
+    }
+
+    if (motor_id == MOTOR_UP)
+    {
+        motor = &s_up_motor;
+        FocMotor_SetDisabled(&s_down_motor);
+    }
+    else if (motor_id == MOTOR_DOWN)
+    {
+        motor = &s_down_motor;
+        FocMotor_SetDisabled(&s_up_motor);
+    }
+    else
+    {
+        return;
+    }
+
+    PID_Reset(motor->pid_position);
+    PID_Reset(motor->pid_speed);
+    PID_Reset(motor->pid_vision);
+    PID_Reset(motor->pid_current_d);
+    PID_Reset(motor->pid_current_q);
+
+    FocMotor_SetOpenLoop(motor, speed_rad_s, uq_v);
+    s_open_loop_active = 1U;
+}
+
 void FOC_Drive_Service(void)
 {
     if (s_initialized == 0U)
@@ -528,7 +563,12 @@ void FOC_Drive_ControlTick(void)
     FocMotor_SetPhaseCurrent(&s_up_motor, &s_up_phase_current);
     FocMotor_SetPhaseCurrent(&s_down_motor, &s_down_phase_current);
 
-    if (turn_flag != 0U)
+    if (s_open_loop_active != 0U)
+    {
+        FocMotor_Tick(&s_up_motor);
+        FocMotor_Tick(&s_down_motor);
+    }
+    else if (turn_flag != 0U)
     {
         FocMotor_SetPosition(&s_up_motor, target_angle);
         FocMotor_Tick(&s_up_motor);
@@ -671,6 +711,7 @@ void FOC_Drive_Stop(void)
     s_vision_frame.find = 0U;
     s_last_vision_tick = 0U;
     s_vision_was_active = 0U;
+    s_open_loop_active = 0U;
     s_mode_snapshot = (uint16_t)FOC_MODE_DISABLED;
     disableAllPWM();
 }

@@ -353,6 +353,10 @@ void FocMotor_Init(FocMotor_t *motor,
     motor->state.current_valid = 0U;
     motor->state.output_enabled = 0U;
 
+    motor->open_loop.speed_rad_s = 0.0f;
+    motor->open_loop.uq_v = 0.0f;
+    motor->open_loop.angle_rad = 0.0f;
+
     if (motor->pid_position != NULL)
     {
         PID_SetDt(motor->pid_position, motor->dt_s);
@@ -404,6 +408,9 @@ void FocMotor_Reset(FocMotor_t *motor)
     motor->vision.measure = 0.0f;
     motor->vision.center = 0.0f;
     motor->vision.valid = 0U;
+    motor->open_loop.speed_rad_s = 0.0f;
+    motor->open_loop.uq_v = 0.0f;
+    motor->open_loop.angle_rad = 0.0f;
     foc_disable_output(motor);
 }
 
@@ -456,6 +463,18 @@ void FocMotor_SetVision(FocMotor_t *motor, const FocVisionCommand_t *command)
     motor->vision = *command;
 }
 
+void FocMotor_SetOpenLoop(FocMotor_t *motor, float speed_rad_s, float uq_v)
+{
+    if (motor == NULL)
+    {
+        return;
+    }
+
+    motor->mode = FOC_MODE_OPEN_LOOP;
+    motor->open_loop.speed_rad_s = speed_rad_s;
+    motor->open_loop.uq_v = uq_v;
+}
+
 void FocMotor_SetPhaseCurrent(FocMotor_t *motor, const FocPhaseCurrent_t *phase_current)
 {
     if (motor == NULL)
@@ -490,6 +509,29 @@ void FocMotor_Tick(FocMotor_t *motor)
     if (motor->mode == FOC_MODE_DISABLED)
     {
         FocMotor_Reset(motor);
+        return;
+    }
+
+    /* Open-loop mode: synthetic angle, no feedback */
+    if (motor->mode == FOC_MODE_OPEN_LOOP)
+    {
+        motor->open_loop.angle_rad += motor->open_loop.speed_rad_s * FOC_POLE_PAIRS * motor->dt_s;
+        motor->open_loop.angle_rad = Foc_NormalizeAngle(motor->open_loop.angle_rad);
+
+        motor->state.speed_target_rad_s = motor->open_loop.speed_rad_s;
+        motor->state.id_target_a = 0.0f;
+        motor->state.iq_target_a = 0.0f;
+        motor->state.id_measured_a = 0.0f;
+        motor->state.iq_measured_a = 0.0f;
+        motor->state.ud_command_v = 0.0f;
+        motor->state.uq_command_v = motor->open_loop.uq_v;
+        motor->state.ud_applied_v = 0.0f;
+        motor->state.uq_applied_v = motor->open_loop.uq_v;
+        motor->state.vision_error = 0.0f;
+        motor->state.current_valid = 0U;
+
+        setPhaseVoltage(motor->open_loop.uq_v, 0.0f, motor->open_loop.angle_rad, motor->motor_id);
+        motor->state.output_enabled = 1U;
         return;
     }
 
