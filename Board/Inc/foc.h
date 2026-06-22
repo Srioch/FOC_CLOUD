@@ -107,6 +107,8 @@ typedef struct
     float iq_limit_a;
     float uq_limit_v;
     int8_t position_iq_direction;
+    float gravity_gain_a;
+    float gravity_offset_rad;
 
     FocMode_t mode;
     float target_position_rad;

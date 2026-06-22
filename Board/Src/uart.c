@@ -335,6 +335,7 @@ static void cmd_print_help(void)
     printf("--- Vision / Misc ---\r\n");
     printf("  SET VISC.X|VISC.Y:<v>   GET VISC\r\n");
     printf("  SET DZONE:<rad>          GET DZONE\r\n");
+    printf("  SET GRAV.GAIN:<v>  SET GRAV.OFF[:DEG]:<v>  GET GRAV\r\n");
     printf("--- Motor ---\r\n");
     printf("  SET ANGLE [UP|DN]:<deg>  TURN [UP|DN]  STOP  OL [DN]:<spd>:<uq>\r\n");
     printf("  SET EOFFSET:<rad>  SET EOFFSET DEG:<deg>\r\n");
@@ -454,6 +455,28 @@ void UART_CommandHandler(const char *command)
     else if (strcmp(command, "GET LIM") == 0) {
         printf("FOC Limits -- SPD:%.4f rad/s  IQ:%.4f A  UQ:%.4f V\r\n",
                FOC_Drive_GetSpeedLimit(), FOC_Drive_GetIqLimit(), FOC_Drive_GetUqLimit());
+    }
+    else if ((sscanf(command, "SET GRAV.GAIN:%f", &temp) == 1) ||
+             (sscanf(command, "SET GRAV.GAIN %f", &temp) == 1)) {
+        FOC_Drive_SetGravityGain(MOTOR_UP, temp);
+        printf("Gravity gain set to: %.4f A\r\n", FOC_Drive_GetGravityGain(MOTOR_UP));
+    }
+    else if ((sscanf(command, "SET GRAV.OFF DEG:%f", &temp) == 1) ||
+             (sscanf(command, "SET GRAV.OFF DEG %f", &temp) == 1)) {
+        FOC_Drive_SetGravityOffset(MOTOR_UP, temp / 180.0f * M_PI);
+        printf("Gravity offset set to: %.2f deg (%.4f rad)\r\n",
+               temp, FOC_Drive_GetGravityOffset(MOTOR_UP));
+    }
+    else if ((sscanf(command, "SET GRAV.OFF:%f", &temp) == 1) ||
+             (sscanf(command, "SET GRAV.OFF %f", &temp) == 1)) {
+        FOC_Drive_SetGravityOffset(MOTOR_UP, temp);
+        printf("Gravity offset set to: %.4f rad\r\n", FOC_Drive_GetGravityOffset(MOTOR_UP));
+    }
+    else if (strcmp(command, "GET GRAV") == 0) {
+        printf("Gravity UP -- Gain:%.4f A  Offset:%.4f rad (%.2f deg)\r\n",
+               FOC_Drive_GetGravityGain(MOTOR_UP),
+               FOC_Drive_GetGravityOffset(MOTOR_UP),
+               FOC_Drive_GetGravityOffset(MOTOR_UP) * 180.0f / M_PI);
     }
     else if ((sscanf(command, "SET VISC.X:%f", &temp) == 1) ||
              (sscanf(command, "SET VISC.X %f", &temp) == 1)) {

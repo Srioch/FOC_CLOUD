@@ -30,4 +30,9 @@ float FOC_Drive_GetSpeedLimit(void);
 float FOC_Drive_GetIqLimit(void);
 float FOC_Drive_GetUqLimit(void);
 
+void  FOC_Drive_SetGravityGain(uint8_t motor_id, float gain_a);
+void  FOC_Drive_SetGravityOffset(uint8_t motor_id, float offset_rad);
+float FOC_Drive_GetGravityGain(uint8_t motor_id);
+float FOC_Drive_GetGravityOffset(uint8_t motor_id);
+
 #endif /* __FOC_DRIVE_H__ */

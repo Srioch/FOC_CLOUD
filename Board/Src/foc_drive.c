@@ -820,3 +820,27 @@ void FOC_Drive_SetUqLimit(float limit_v)
 float FOC_Drive_GetSpeedLimit(void) { return s_up_motor.speed_limit_rad_s; }
 float FOC_Drive_GetIqLimit(void)    { return s_up_motor.iq_limit_a; }
 float FOC_Drive_GetUqLimit(void)    { return s_up_motor.uq_limit_v; }
+
+void FOC_Drive_SetGravityGain(uint8_t motor_id, float gain_a)
+{
+    FocMotor_t *motor = (motor_id == MOTOR_DOWN) ? &s_down_motor : &s_up_motor;
+    motor->gravity_gain_a = (gain_a < 0.0f) ? 0.0f : gain_a;
+}
+
+void FOC_Drive_SetGravityOffset(uint8_t motor_id, float offset_rad)
+{
+    FocMotor_t *motor = (motor_id == MOTOR_DOWN) ? &s_down_motor : &s_up_motor;
+    motor->gravity_offset_rad = offset_rad;
+}
+
+float FOC_Drive_GetGravityGain(uint8_t motor_id)
+{
+    FocMotor_t *motor = (motor_id == MOTOR_DOWN) ? &s_down_motor : &s_up_motor;
+    return motor->gravity_gain_a;
+}
+
+float FOC_Drive_GetGravityOffset(uint8_t motor_id)
+{
+    FocMotor_t *motor = (motor_id == MOTOR_DOWN) ? &s_down_motor : &s_up_motor;
+    return motor->gravity_offset_rad;
+}

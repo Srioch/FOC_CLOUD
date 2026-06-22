@@ -327,6 +327,8 @@ void FocMotor_Init(FocMotor_t *motor,
         motor->uq_limit_v = VOLTAGE_LIMIT;
     }
     motor->position_iq_direction = -1;
+    motor->gravity_gain_a = 0.0f;
+    motor->gravity_offset_rad = 0.0f;
 
     motor->mode = FOC_MODE_DISABLED;
     motor->target_position_rad = 0.0f;
@@ -608,6 +610,7 @@ void FocMotor_Tick(FocMotor_t *motor)
         iq_command_a = PID_Update(motor->pid_speed,
                                   motor->state.speed_target_rad_s,
                                   motor->state.mechanical_speed_rad_s);
+        iq_command_a += motor->gravity_gain_a * sinf(motor->state.mechanical_angle_rad - motor->gravity_offset_rad);
         iq_command_a *= (float)motor->position_iq_direction;
         foc_apply_current_output(motor, 0.0f, iq_command_a, 0U);
         break;
@@ -628,6 +631,7 @@ void FocMotor_Tick(FocMotor_t *motor)
         iq_command_a = PID_Update(motor->pid_speed,
                                   motor->state.speed_target_rad_s,
                                   motor->state.mechanical_speed_rad_s);
+        iq_command_a += motor->gravity_gain_a * sinf(motor->state.mechanical_angle_rad - motor->gravity_offset_rad);
         foc_apply_current_output(motor, 0.0f, iq_command_a, 0U);
         break;
 
