@@ -16,10 +16,19 @@
 #define AS5600_I2C_ADDR_7BIT 0x36U
 #define AS5600_RESOLUTION    4096U
 #define ENCODER_SIGN -1
+#define ENCODER_I2C_FAIL_RECOVER_THRESHOLD 3U
 
 extern float target_angle;
 
-
+typedef struct
+{
+	HAL_StatusTypeDef last_status;
+	uint32_t error_count;
+	uint16_t consecutive_failures;
+	uint16_t last_raw_angle;
+	uint8_t valid;
+	uint8_t recovery_count;
+} EncoderStatus_t;
 
 typedef struct
 {
@@ -39,6 +48,7 @@ typedef struct
 
 	float elec_zero_offset_rad; // 电角度零偏（rad）
 
+	EncoderStatus_t status;    // I2C读取和恢复状态
 
 	//非定时器使用
 	uint32_t time_prev;
@@ -65,10 +75,14 @@ void Encoder_SetMechanicalZero(Encoder_t *enc);
 void Encoder_SetElectricalZeroOffset(Encoder_t *enc, float offset_rad);
 
 // dt_s 为采样周期（秒），建议固定周期调用
-void Encoder_Update(Encoder_t *enc, float dt_s);
+HAL_StatusTypeDef Encoder_Update(Encoder_t *enc, float dt_s);
 
 //无固定采样周期
-void Encoder_Updata(Encoder_t *enc);
+HAL_StatusTypeDef Encoder_Updata(Encoder_t *enc);
+
+EncoderStatus_t Encoder_GetStatus(const Encoder_t *enc);
+void Encoder_ClearDiagnostics(Encoder_t *enc);
+uint8_t Encoder_IsValid(const Encoder_t *enc);
 
 float Encoder_GetMechanicalAngle(const Encoder_t *enc);
 float Encoder_GetElectricalAngle(const Encoder_t *enc);

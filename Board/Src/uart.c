@@ -278,6 +278,9 @@ static uint8_t cmd_try_get_pid(const char *command)
 
 static void cmd_print_status(void)
 {
+    EncoderStatus_t up_encoder = Encoder_GetStatus(&encoder_up);
+    EncoderStatus_t down_encoder = Encoder_GetStatus(&encoder_down);
+
     printf("===== FOC STATUS =====\r\n");
     printf("-- UP Motor --\r\n");
     printf("UP.ANG:  KP=%.4f KI=%.4f KD=%.4f\r\n", pid_angle.Kp, pid_angle.Ki, pid_angle.Kd);
@@ -287,6 +290,13 @@ static void cmd_print_status(void)
            FOC_Drive_GetUpCurrentDPid()->Kp, FOC_Drive_GetUpCurrentDPid()->Ki, FOC_Drive_GetUpCurrentDPid()->Kd);
     printf("UP.CURQ: KP=%.4f KI=%.4f KD=%.4f\r\n",
            FOC_Drive_GetUpCurrentQPid()->Kp, FOC_Drive_GetUpCurrentQPid()->Ki, FOC_Drive_GetUpCurrentQPid()->Kd);
+    printf("UP.ENC: valid=%u last=%d err=%lu fail=%u recover=%u raw=%u\r\n",
+           up_encoder.valid,
+           (int)up_encoder.last_status,
+           (unsigned long)up_encoder.error_count,
+           up_encoder.consecutive_failures,
+           up_encoder.recovery_count,
+           up_encoder.last_raw_angle);
     printf("-- DOWN Motor --\r\n");
     printf("DN.ANG:  KP=%.4f KI=%.4f KD=%.4f\r\n",
            FOC_Drive_GetDownAnglePid()->Kp, FOC_Drive_GetDownAnglePid()->Ki, FOC_Drive_GetDownAnglePid()->Kd);
@@ -297,6 +307,13 @@ static void cmd_print_status(void)
            FOC_Drive_GetDownCurrentDPid()->Kp, FOC_Drive_GetDownCurrentDPid()->Ki, FOC_Drive_GetDownCurrentDPid()->Kd);
     printf("DN.CURQ: KP=%.4f KI=%.4f KD=%.4f\r\n",
            FOC_Drive_GetDownCurrentQPid()->Kp, FOC_Drive_GetDownCurrentQPid()->Ki, FOC_Drive_GetDownCurrentQPid()->Kd);
+    printf("DN.ENC: valid=%u last=%d err=%lu fail=%u recover=%u raw=%u\r\n",
+           down_encoder.valid,
+           (int)down_encoder.last_status,
+           (unsigned long)down_encoder.error_count,
+           down_encoder.consecutive_failures,
+           down_encoder.recovery_count,
+           down_encoder.last_raw_angle);
     printf("-- Limits --\r\n");
     printf("SPD:%.4f rad/s  IQ:%.4f A  UQ:%.4f V\r\n",
            FOC_Drive_GetSpeedLimit(), FOC_Drive_GetIqLimit(), FOC_Drive_GetUqLimit());

@@ -501,18 +501,10 @@ void FocMotor_SetPhaseCurrent(FocMotor_t *motor, const FocPhaseCurrent_t *phase_
 void FocMotor_Tick(FocMotor_t *motor)
 {
     float iq_command_a = 0.0f;
+    HAL_StatusTypeDef encoder_status = HAL_OK;
 
     if ((motor == NULL) || (motor->enc == NULL) || (motor->enc->is_started == 0U))
     {
-        return;
-    }
-
-    Encoder_Update(motor->enc, motor->dt_s);
-    foc_update_measurements(motor);
-
-    if (motor->mode == FOC_MODE_DISABLED)
-    {
-        FocMotor_Reset(motor);
         return;
     }
 
@@ -536,6 +528,22 @@ void FocMotor_Tick(FocMotor_t *motor)
 
         setPhaseVoltage(motor->open_loop.uq_v, 0.0f, motor->open_loop.angle_rad, motor->motor_id);
         motor->state.output_enabled = 1U;
+        return;
+    }
+
+    encoder_status = Encoder_Update(motor->enc, motor->dt_s);
+    foc_update_measurements(motor);
+
+    if (motor->mode == FOC_MODE_DISABLED)
+    {
+        FocMotor_Reset(motor);
+        return;
+    }
+
+    if ((encoder_status != HAL_OK) &&
+        (Encoder_GetStatus(motor->enc).consecutive_failures >= ENCODER_I2C_FAIL_RECOVER_THRESHOLD))
+    {
+        FocMotor_Reset(motor);
         return;
     }
 

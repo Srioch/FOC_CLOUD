@@ -402,6 +402,18 @@ static void foc_drive_update_phase_offset_tracking(void)
     }
 }
 
+static uint8_t foc_drive_encoder_ready_for_closed_loop(const Encoder_t *encoder)
+{
+    EncoderStatus_t status = Encoder_GetStatus(encoder);
+
+    if (status.consecutive_failures >= ENCODER_I2C_FAIL_RECOVER_THRESHOLD)
+    {
+        return 0U;
+    }
+
+    return Encoder_IsValid(encoder);
+}
+
 /**
  * @brief 更新相位电压ADC采样
  * 
@@ -570,7 +582,10 @@ void FOC_Drive_ControlTick(void)
     }
     else if (turn_flag != 0U)
     {
-        FocMotor_SetPosition(&s_up_motor, target_angle);
+        if (foc_drive_encoder_ready_for_closed_loop(&encoder_up) != 0U)
+        {
+            FocMotor_SetPosition(&s_up_motor, target_angle);
+        }
         FocMotor_Tick(&s_up_motor);
 
         FocMotor_SetDisabled(&s_down_motor);
@@ -585,13 +600,19 @@ void FOC_Drive_ControlTick(void)
         up_command.measure = (float)s_vision_frame.y;
         up_command.center = default_control_y;
         up_command.valid = s_vision_frame.find;
-        FocMotor_SetVision(&s_up_motor, &up_command);
+        if (foc_drive_encoder_ready_for_closed_loop(&encoder_up) != 0U)
+        {
+            FocMotor_SetVision(&s_up_motor, &up_command);
+        }
         FocMotor_Tick(&s_up_motor);
 
         down_command.measure = (float)s_vision_frame.x;
         down_command.center = default_control_x;
         down_command.valid = s_vision_frame.find;
-        FocMotor_SetVision(&s_down_motor, &down_command);
+        if (foc_drive_encoder_ready_for_closed_loop(&encoder_down) != 0U)
+        {
+            FocMotor_SetVision(&s_down_motor, &down_command);
+        }
         FocMotor_Tick(&s_down_motor);
         s_vision_was_active = 1U;
     }
@@ -605,9 +626,16 @@ void FOC_Drive_ControlTick(void)
                 s_up_hold_angle_rad = s_up_motor.state.mechanical_angle_rad;
                 s_down_hold_angle_rad = s_down_motor.state.mechanical_angle_rad;
             }
-            FocMotor_SetPosition(&s_up_motor, s_up_hold_angle_rad);
+            if (foc_drive_encoder_ready_for_closed_loop(&encoder_up) != 0U)
+            {
+                FocMotor_SetPosition(&s_up_motor, s_up_hold_angle_rad);
+            }
             FocMotor_Tick(&s_up_motor);
-            FocMotor_SetPosition(&s_down_motor, s_down_hold_angle_rad);
+
+            if (foc_drive_encoder_ready_for_closed_loop(&encoder_down) != 0U)
+            {
+                FocMotor_SetPosition(&s_down_motor, s_down_hold_angle_rad);
+            }
             FocMotor_Tick(&s_down_motor);
         }
         else
