@@ -33,11 +33,13 @@
 #define FOC_SPEED_LIMIT_RAD_S 20.0f
 #define FOC_IQ_LIMIT_A 2.0f
 #define FOC_UQ_LIMIT_V 6.0f
+#define FOC_UP_POSITION_IQ_DIRECTION (-1)
+#define FOC_DOWN_POSITION_IQ_DIRECTION (-1)
 #define FOC_VISION_FRAME_TIMEOUT_MS 50U
 #define FOC_UP_PHASE_A_ADC_CHANNEL ADC_CHANNEL_5
 #define FOC_UP_PHASE_B_ADC_CHANNEL ADC_CHANNEL_6
-#define FOC_DOWN_PHASE_A_ADC_CHANNEL ADC_CHANNEL_8
-#define FOC_DOWN_PHASE_B_ADC_CHANNEL ADC_CHANNEL_9
+#define FOC_DOWN_PHASE_A_ADC_CHANNEL ADC_CHANNEL_11
+#define FOC_DOWN_PHASE_B_ADC_CHANNEL ADC_CHANNEL_12
 #define FOC_PHASE_CURRENT_AMP_GAIN 20.0f
 #define FOC_PHASE_CURRENT_SHUNT_RESISTANCE_OHM 0.1f
 #define FOC_PHASE_CURRENT_ADC_OUTPUT_GAIN 1.0f
@@ -332,6 +334,9 @@ static void foc_drive_init_control_loops(void)
                   FOC_SPEED_LIMIT_RAD_S,
                   FOC_IQ_LIMIT_A,
                   FOC_UQ_LIMIT_V);
+
+    FocMotor_SetPositionIqDirection(&s_up_motor, FOC_UP_POSITION_IQ_DIRECTION);
+    FocMotor_SetPositionIqDirection(&s_down_motor, FOC_DOWN_POSITION_IQ_DIRECTION);
 }
 
 /**
@@ -582,14 +587,35 @@ void FOC_Drive_ControlTick(void)
     }
     else if (turn_flag != 0U)
     {
-        if (foc_drive_encoder_ready_for_closed_loop(&encoder_up) != 0U)
+        /* UP motor: bit 0 */
+        if (turn_flag & 0x01U)
         {
-            FocMotor_SetPosition(&s_up_motor, target_angle);
+            if (foc_drive_encoder_ready_for_closed_loop(&encoder_up) != 0U)
+            {
+                FocMotor_SetPosition(&s_up_motor, target_angle);
+            }
+            FocMotor_Tick(&s_up_motor);
         }
-        FocMotor_Tick(&s_up_motor);
+        else
+        {
+            FocMotor_SetDisabled(&s_up_motor);
+            FocMotor_Tick(&s_up_motor);
+        }
 
-        FocMotor_SetDisabled(&s_down_motor);
-        FocMotor_Tick(&s_down_motor);
+        /* DOWN motor: bit 1 */
+        if (turn_flag & 0x02U)
+        {
+            if (foc_drive_encoder_ready_for_closed_loop(&encoder_down) != 0U)
+            {
+                FocMotor_SetPosition(&s_down_motor, target_angle_down);
+            }
+            FocMotor_Tick(&s_down_motor);
+        }
+        else
+        {
+            FocMotor_SetDisabled(&s_down_motor);
+            FocMotor_Tick(&s_down_motor);
+        }
     }
     else if ((s_vision_frame.find != 0U) &&
              ((HAL_GetTick() - s_last_vision_tick) <= FOC_VISION_FRAME_TIMEOUT_MS))
@@ -724,7 +750,7 @@ void FOC_Drive_TelemetryTask(void)
                    s_down_motor.state.iq_target_a); */
     if ((len > 0) && (len < (int)sizeof(line)))
     {
-        Uart_Send(&huart1, (uint8_t *)line, (uint16_t)len);
+        //Uart_Send(&huart1, (uint8_t *)line, (uint16_t)len);
     }
 }
 

@@ -326,6 +326,7 @@ void FocMotor_Init(FocMotor_t *motor,
     {
         motor->uq_limit_v = VOLTAGE_LIMIT;
     }
+    motor->position_iq_direction = -1;
 
     motor->mode = FOC_MODE_DISABLED;
     motor->target_position_rad = 0.0f;
@@ -479,6 +480,16 @@ void FocMotor_SetOpenLoop(FocMotor_t *motor, float speed_rad_s, float uq_v)
     motor->open_loop.uq_v = uq_v;
 }
 
+void FocMotor_SetPositionIqDirection(FocMotor_t *motor, int8_t direction)
+{
+    if (motor == NULL)
+    {
+        return;
+    }
+
+    motor->position_iq_direction = (direction < 0) ? -1 : 1;
+}
+
 void FocMotor_SetPhaseCurrent(FocMotor_t *motor, const FocPhaseCurrent_t *phase_current)
 {
     if (motor == NULL)
@@ -597,7 +608,8 @@ void FocMotor_Tick(FocMotor_t *motor)
         iq_command_a = PID_Update(motor->pid_speed,
                                   motor->state.speed_target_rad_s,
                                   motor->state.mechanical_speed_rad_s);
-        foc_apply_current_output(motor, 0.0f, iq_command_a, 1U);
+        iq_command_a *= (float)motor->position_iq_direction;
+        foc_apply_current_output(motor, 0.0f, iq_command_a, 0U);
         break;
 
     case FOC_MODE_VISION:

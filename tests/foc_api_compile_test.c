@@ -40,6 +40,7 @@ int main(void)
                   20.0f,
                   3.0f,
                   6.0f);
+    FocMotor_SetPositionIqDirection(&motor, -1);
     FocMotor_SetPhaseCurrent(&motor, &phase_current);
 
     FocMotor_SetSpeed(&motor, 5.0f);
@@ -60,6 +61,7 @@ int main(void)
            (state != 0) &&
            (motor.motor_id == MOTOR_UP) &&
            (motor.dt_s > 0.0f) &&
+           (motor.position_iq_direction == -1) &&
            (motor.iq_limit_a > 0.0f) &&
            (motor.uq_limit_v > 0.0f) &&
            (fabsf(dq_current.id_a - 1.0f) < 0.001f) &&

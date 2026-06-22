@@ -336,7 +336,7 @@ static void cmd_print_help(void)
     printf("  SET VISC.X|VISC.Y:<v>   GET VISC\r\n");
     printf("  SET DZONE:<rad>          GET DZONE\r\n");
     printf("--- Motor ---\r\n");
-    printf("  SET ANGLE:<deg>  TURN  STOP  OL:<spd>:<uq>\r\n");
+    printf("  SET ANGLE [UP|DN]:<deg>  TURN [UP|DN]  STOP  OL [DN]:<spd>:<uq>\r\n");
     printf("  SET EOFFSET:<rad>  SET EOFFSET DEG:<deg>\r\n");
     printf("--- Meta ---\r\n");
     printf("  STATUS  HELP\r\n");
@@ -357,14 +357,32 @@ void UART_CommandHandler(const char *command)
     else if (strcmp(command, "HELP") == 0) {
         cmd_print_help();
     }
+    else if ((sscanf(command, "SET ANGLE DN:%f", &temp) == 1) ||
+             (sscanf(command, "SET ANGLE DN %f", &temp) == 1)) {
+        target_angle_down = temp / 180.0f * M_PI;
+        printf("Target angle DOWN set to: %.2f deg (%.4f rad)\r\n", temp, target_angle_down);
+    }
+    else if ((sscanf(command, "SET ANGLE UP:%f", &temp) == 1) ||
+             (sscanf(command, "SET ANGLE UP %f", &temp) == 1)) {
+        target_angle = temp / 180.0f * M_PI;
+        printf("Target angle UP set to: %.2f deg (%.4f rad)\r\n", temp, target_angle);
+    }
     else if ((sscanf(command, "SET ANGLE:%f", &temp) == 1) ||
              (sscanf(command, "SET ANGLE %f", &temp) == 1)) {
         target_angle = temp / 180.0f * M_PI;
         printf("Target angle set to: %.2f deg (%.4f rad)\r\n", temp, target_angle);
     }
+    else if (strcmp(command, "TURN UP") == 0) {
+        turn_flag |= 0x01U;
+        printf("Turn UP command received\r\n");
+    }
+    else if (strcmp(command, "TURN DN") == 0) {
+        turn_flag |= 0x02U;
+        printf("Turn DN command received\r\n");
+    }
     else if (strcmp(command, "TURN") == 0) {
-        turn_flag = 1U;
-        printf("Turn command received\r\n");
+        turn_flag = 0x03U;
+        printf("Turn command received (both motors)\r\n");
     }
     else if (strcmp(command, "STOP") == 0) {
         turn_flag = 0U;
@@ -372,6 +390,11 @@ void UART_CommandHandler(const char *command)
         vision_frame_ready = 0U;
         FOC_Drive_Stop();
         printf("Stop command received\r\n");
+    }
+    else if ((sscanf(command, "OL DN:%f:%f", &speed, &uq) == 2) ||
+             (sscanf(command, "OL DN %f %f", &speed, &uq) == 2)) {
+        FOC_Drive_SetOpenLoop(MOTOR_DOWN, speed, uq);
+        printf("Open-loop DOWN: speed=%.2f rad/s, Uq=%.2f V\r\n", speed, uq);
     }
     else if ((sscanf(command, "OL:%f:%f", &speed, &uq) == 2) ||
              (sscanf(command, "OL %f %f", &speed, &uq) == 2)) {

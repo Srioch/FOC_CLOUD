@@ -10,6 +10,7 @@
 #define ENCODER_I2C_RECOVERY_DELAY_US 5U
 
 float target_angle = 0.0f;
+float target_angle_down = 0.0f;
 Encoder_t encoder_up;
 Encoder_t encoder_down;
 

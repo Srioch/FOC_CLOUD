@@ -19,6 +19,7 @@
 #define ENCODER_I2C_FAIL_RECOVER_THRESHOLD 3U
 
 extern float target_angle;
+extern float target_angle_down;
 
 typedef struct
 {

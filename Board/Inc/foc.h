@@ -106,6 +106,7 @@ typedef struct
     float speed_limit_rad_s;
     float iq_limit_a;
     float uq_limit_v;
+    int8_t position_iq_direction;
 
     FocMode_t mode;
     float target_position_rad;
@@ -149,6 +150,7 @@ void FocMotor_SetSpeed(FocMotor_t *motor, float speed_rad_s);
 void FocMotor_SetPosition(FocMotor_t *motor, float position_rad);
 void FocMotor_SetVision(FocMotor_t *motor, const FocVisionCommand_t *command);
 void FocMotor_SetOpenLoop(FocMotor_t *motor, float speed_rad_s, float uq_v);
+void FocMotor_SetPositionIqDirection(FocMotor_t *motor, int8_t direction);
 void FocMotor_SetPhaseCurrent(FocMotor_t *motor, const FocPhaseCurrent_t *phase_current);
 void FocMotor_Tick(FocMotor_t *motor);
 const FocState_t *FocMotor_GetState(const FocMotor_t *motor);
