@@ -4,6 +4,10 @@
 
 #define FOC_ONE_OVER_SQRT3 0.5773502691896258f
 
+float angle_deadzone = 0.0f;
+float default_control_x = 160.0f;
+float default_control_y = 120.0f;
+
 static float foc_clampf(float value, float min_value, float max_value)
 {
     if (value < min_value)
@@ -268,7 +272,7 @@ void setPhaseVoltage(float Uq, float Ud, float electrical_angle_rad, uint8_t mot
     float ub = 0.0f;
     float uc = 0.0f;
 
-    electrical_angle_rad = Foc_NormalizeAngle(electrical_angle_rad + ANGLE_DEADZONE);
+    electrical_angle_rad = Foc_NormalizeAngle(electrical_angle_rad + angle_deadzone);
 
     ualpha = (Ud * cosf(electrical_angle_rad)) - (Uq * sinf(electrical_angle_rad));
     ubeta = (Ud * sinf(electrical_angle_rad)) + (Uq * cosf(electrical_angle_rad));

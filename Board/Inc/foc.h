@@ -14,9 +14,9 @@
 #define M_PI 3.14159265358979323846f
 #endif
 
-#define FOC_POLE_PAIRS 14
+#define FOC_POLE_PAIRS 7U
 #define VOLTAGE_LIMIT 12.12f
-#define ANGLE_DEADZONE 0.0f
+extern float angle_deadzone;
 
 #define CLOUD_UP_TIM htim2
 #define CLOUD_DOWN_TIM htim3
@@ -27,8 +27,8 @@
 #define CLOUD_DOWN_CHANNEL_2 TIM_CHANNEL_3
 #define CLOUD_DOWN_CHANNEL_3 TIM_CHANNEL_4
 
-#define DEFAULT_CONTORL_X 160.0f
-#define DEFAULT_CONTORL_Y 120.0f
+extern float default_control_x;
+extern float default_control_y;
 
 #define MOTOR_UP 1U
 #define MOTOR_DOWN 2U

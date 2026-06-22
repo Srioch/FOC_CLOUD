@@ -583,13 +583,13 @@ void FOC_Drive_ControlTick(void)
         FocVisionCommand_t down_command = {0};
 
         up_command.measure = (float)s_vision_frame.y;
-        up_command.center = DEFAULT_CONTORL_Y;
+        up_command.center = default_control_y;
         up_command.valid = s_vision_frame.find;
         FocMotor_SetVision(&s_up_motor, &up_command);
         FocMotor_Tick(&s_up_motor);
 
         down_command.measure = (float)s_vision_frame.x;
-        down_command.center = DEFAULT_CONTORL_X;
+        down_command.center = default_control_x;
         down_command.valid = s_vision_frame.find;
         FocMotor_SetVision(&s_down_motor, &down_command);
         FocMotor_Tick(&s_down_motor);
@@ -715,3 +715,54 @@ void FOC_Drive_Stop(void)
     s_mode_snapshot = (uint16_t)FOC_MODE_DISABLED;
     disableAllPWM();
 }
+
+PID_t *FOC_Drive_GetUpCurrentDPid(void)     { return &s_up_current_d_pid; }
+PID_t *FOC_Drive_GetUpCurrentQPid(void)     { return &s_up_current_q_pid; }
+PID_t *FOC_Drive_GetDownSpeedPid(void)      { return &s_down_speed_pid; }
+PID_t *FOC_Drive_GetDownAnglePid(void)      { return &s_down_angle_pid; }
+PID_t *FOC_Drive_GetDownCurrentDPid(void)   { return &s_down_current_d_pid; }
+PID_t *FOC_Drive_GetDownCurrentQPid(void)   { return &s_down_current_q_pid; }
+
+void FOC_Drive_SetSpeedLimit(float limit_rad_s)
+{
+    float abs_limit = fabsf(limit_rad_s);
+    if (abs_limit <= 0.0f) abs_limit = PID_ANGLE_OUT_LIMIT_DEFAULT;
+
+    s_up_motor.speed_limit_rad_s   = abs_limit;
+    s_down_motor.speed_limit_rad_s = abs_limit;
+
+    PID_SetOutputLimit(s_up_motor.pid_position, -abs_limit, abs_limit);
+    PID_SetOutputLimit(s_up_motor.pid_vision,   -abs_limit, abs_limit);
+    PID_SetOutputLimit(s_down_motor.pid_position, -abs_limit, abs_limit);
+    PID_SetOutputLimit(s_down_motor.pid_vision,   -abs_limit, abs_limit);
+}
+
+void FOC_Drive_SetIqLimit(float limit_a)
+{
+    float abs_limit = fabsf(limit_a);
+    if (abs_limit <= 0.0f) abs_limit = -PID_DEFAULT_OUT_MIN;
+
+    s_up_motor.iq_limit_a   = abs_limit;
+    s_down_motor.iq_limit_a = abs_limit;
+
+    PID_SetOutputLimit(s_up_motor.pid_speed, -abs_limit, abs_limit);
+    PID_SetOutputLimit(s_down_motor.pid_speed, -abs_limit, abs_limit);
+}
+
+void FOC_Drive_SetUqLimit(float limit_v)
+{
+    float abs_limit = fabsf(limit_v);
+    if (abs_limit <= 0.0f) abs_limit = VOLTAGE_LIMIT;
+
+    s_up_motor.uq_limit_v   = abs_limit;
+    s_down_motor.uq_limit_v = abs_limit;
+
+    PID_SetOutputLimit(s_up_motor.pid_current_d, -abs_limit, abs_limit);
+    PID_SetOutputLimit(s_up_motor.pid_current_q, -abs_limit, abs_limit);
+    PID_SetOutputLimit(s_down_motor.pid_current_d, -abs_limit, abs_limit);
+    PID_SetOutputLimit(s_down_motor.pid_current_q, -abs_limit, abs_limit);
+}
+
+float FOC_Drive_GetSpeedLimit(void) { return s_up_motor.speed_limit_rad_s; }
+float FOC_Drive_GetIqLimit(void)    { return s_up_motor.iq_limit_a; }
+float FOC_Drive_GetUqLimit(void)    { return s_up_motor.uq_limit_v; }

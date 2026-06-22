@@ -18,19 +18,19 @@
 #define PID_DEFAULT_OUT_MAX         (6.0f)
 
 /* Speed loop defaults: input/output unit = rad/s -> A */
-#define PID_SPEED_KP_DEFAULT        0.06f
-#define PID_SPEED_KI_DEFAULT        0.02f
+#define PID_SPEED_KP_DEFAULT        0.11f
+#define PID_SPEED_KI_DEFAULT        0.16f
 #define PID_SPEED_KD_DEFAULT        0.00f
 
 /* Current loop defaults: input/output unit = A -> V */
 #define PID_CURRENT_KP_DEFAULT      0.90f
-#define PID_CURRENT_KI_DEFAULT      5.00f
+#define PID_CURRENT_KI_DEFAULT      3.00f
 #define PID_CURRENT_KD_DEFAULT      0.00f
 
 /* Angle loop defaults: input/output unit = rad -> rad/s */
-#define PID_ANGLE_KP_DEFAULT        16.00f
-#define PID_ANGLE_KI_DEFAULT        0.00f
-#define PID_ANGLE_KD_DEFAULT        0.04f
+#define PID_ANGLE_KP_DEFAULT        50.00f
+#define PID_ANGLE_KI_DEFAULT        1.00f
+#define PID_ANGLE_KD_DEFAULT        0.05f
 #define PID_ANGLE_OUT_LIMIT_DEFAULT 30.0f
 
 #define PID_CLOUD_KP_DEFAULT 0.2f

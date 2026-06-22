@@ -1,0 +1,25 @@
+# Keil MDK-ARM build output
+*.o
+*.d
+*.crf
+*.axf
+*.hex
+*.map
+*.lnp
+*.lst
+*.dep
+*.htm
+*.build_log.htm
+
+# Keil Runtime Environment (auto-generated)
+MDK-ARM/RTE/
+
+# Keil build output directory
+MDK-ARM/FOC_CLOUD/
+
+# J-Link debugger artifacts
+JLinkLog.txt
+JLinkSettings.ini
+
+# Keil user-specific GUI layout
+*.uvguix.*
